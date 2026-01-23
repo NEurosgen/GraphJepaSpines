@@ -50,15 +50,23 @@ def compute_v_kp_for_pyg(data, k):
 
 
 
-
-
-class GraphNormv2(nn.Module):
-    def __init__(self, in_channels, V_kp):
+class BatchRmsNorm(nn.Module):
+    def __init__(self, in_channels,eps =1e-6):
+        super().__init__()
+        self.eps = eps
+        self.gammma = nn.Parameter(torch.ones(in_channels))
+        self.betta = nn.Parameter(torch.zeros(in_channels))
+    def forward(self, x , *args, **kwargs):
+        mean_sq = x.pow(2).mean(dim = 0,keepdim =True)
+        rms = torch.sqrt(mean_sq + self.eps)
+        x_norm = x /rms
+        return self.gamma * x_norm + self.beta
+class GraphNormv2(nn.Module):               # Слишком тяжело для вычисления для нестатических графов :(
+    def __init__(self, in_channels, k):
         super().__init__()
  
-        self.register_buffer('V_kp', V_kp) 
-        k_plus_1 = V_kp.shape[1]
-        self.tau = nn.Parameter(torch.Tensor(in_channels, k_plus_1))
+
+        self.tau = nn.Parameter(torch.Tensor(in_channels, k + 1))
         self.gamma = nn.Parameter(torch.ones(in_channels))
         self.beta = nn.Parameter(torch.zeros(in_channels))
         
@@ -67,10 +75,11 @@ class GraphNormv2(nn.Module):
     def reset_parameters(self):
         nn.init.uniform_(self.tau, a=0, b=0.1)
 
-    def forward(self, x):
+    def forward(self, x, V_kp):
+
         N, C = x.shape
         vt_x = torch.matmul(self.V_kp.t(), x) 
-        
+
 
         inner = torch.sum(self.tau.t() * vt_x, dim=0)
         
@@ -84,47 +93,61 @@ class GraphNormv2(nn.Module):
         
         return self.gamma * x_scaled + self.beta
     
-class GraphResNorm(nn.Module):
-    def __init__(self, in_channels, alpha):
+class GraphRes(nn.Module):
+    def __init__(self, in_channels, alpha , model): 
+        '''
+        Docstring for __init__
+        
+        :param self: Description
+        :param in_channels: Description
+        :param alpha: Description
+        :param model: model return x , x0 , edge index
+        '''
         super().__init__()
+        self.model = model
         self.alpha = alpha 
         self.w1 = nn.Linear(in_channels,in_channels, bias=False)
         self.w2 = nn.Linear(in_channels,in_channels, bias =False)
     def forward(self, x, x0, edge_index, edge_weight = None):
-        ax = GCNConv(x ,edge_index, edge_weight)
+        ax, _ ,_ = self.model(x ,edge_index, edge_weight)
 
         out = (1 - self.alpha)* self.w1(ax) + self.alpha*(self.w2(x0))
+        return out, x0 , edge_index
 
 import torch
 import torch.nn as nn
 from torch_geometric.nn import GCNConv
 
-class DeepGCNBlock(nn.Module):
-    def __init__(self, channels, alpha=0.1):
-        super().__init__()
-        self.alpha = alpha
-        self.conv = GCNConv(channels, channels, add_self_loops=True, normalize=True)
-        self.res_weight = nn.Linear(channels, channels, bias=False)
-        self.norm = GraphNormv2(channels, V_kp)
 
-
-    def forward(self, x, x_0, edge_index):
-        axw1 = self.conv(x, edge_index)
-        res = self.res_weight(x_0)
-        x = (1 - self.alpha) * axw1 + self.alpha * res
-        x = self.norm(x) 
-        
-        return x, x_0 ,edge_index
-
-
-class GCNEncoder(nn.Module):
-    def __init__(self, n_layers, in_channels, out_channels, alpha = 0.1):
-        self.n_layers = n_layers
+class GraphGCNResNorm(nn.Module):
+    def __init__(self, in_channels  ,alpha = 0.1):
         self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.init_gcn = GCNConv(in_channels=in_channels,out_channels=out_channels,add_self_loops=True,normalize=True)
-        self.module = nn.Sequential([ DeepGCNBlock(out_channels,alpha=alpha) for i in range(self.num_layers- 1)])
-    def forward(self,x0 , edge_index, edge_weight = None):
-        x = self.init_gcn(x0,edge_index)
-        out = self.module(x,x0,edge_index)
-        return out, x0 , edge_index
+        self.alpha = alpha
+        model = GCNConv(in_channels=in_channels,out_channels=in_channels,add_self_loops=True,normalize=True)
+        self.res = GraphRes(in_channels=in_channels,alpha=alpha, model = model)
+        self.norm = BatchRmsNorm(in_channels=in_channels)
+        self.act = nn.ReLU()
+    def forward(self, x ,x0, edge_index, edge_weigh = None):
+        out,_,_ =self.res(x,x0,edge_index,edge_weigh)
+        
+        out = self.act(self.norm(out))
+
+        return out, x0, edge_index
+
+
+
+
+class GraphGcnEncoder(nn.Module):
+    def __init__(self,in_channels, out_channels , alpha = 0.1 , num_layers = 1):
+        self.proj = nn.Linear(in_channels=in_channels,out_channels=out_channels,bias=False)
+        self.layers = nn.ModuleList([
+            GraphGCNResNorm(in_channels=out_channels, alpha=alpha)  
+            for _ in range(num_layers )
+        ])
+    def forward(self, x, edge_index, edge_weight = None):
+        x = self.proj(x)
+        x0 = x.clone()
+        for layer in self.layers:
+            x = layer(x, x0, edge_index, edge_weight)
+
+        return x
