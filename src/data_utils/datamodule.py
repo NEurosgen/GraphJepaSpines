@@ -5,10 +5,31 @@ from typing import Optional
 
 from torch.utils.data import random_split
 from torch_geometric.loader import DataLoader
+from torch_geometric.data import Dataset
 import torch
 import random
-
+import os
 seed = 1#from confing
+
+
+class GraphDataSet(Dataset):
+    def __init__(self, path , transfrom = None):  
+        super().__init__(None, transfrom)
+        self.transform =transfrom
+        self.path = path 
+        self.file_names = [f for f in os.listdir(self.path) if f.endswith('.pt') ]
+    def len(self):
+        return len(self.file_names)
+    def get(self, idx):
+        file_path = os.path.join(self.path, self.file_names[idx])
+        data = torch.load(file_path)
+        if self.transform is not None:
+            data = self.transform(data)
+        return data
+
+
+
+
 
 class GraphDataModule(pl.LightningDataModule):
     def __init__(self ,dataset , batch_size , num_workers, ratio = [0.7,0.2, 0.1]):

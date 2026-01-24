@@ -72,7 +72,9 @@ from typing import Callable
 import copy
 
 class GraphJepa(nn.Module):
-    def __init__(self, encoder, predictor ,ema = 0.996):
+    def __init__(self, encoder, predictor ,mask_function: Callable,ema = 0.996):
+        self.mask_function = mask_function
+
         self.mask_token = nn.Parameter(torch.tensor(1,encoder[0].in_channels))
         torch.nn.init.normal_(self.mask_token,std=0.2)
 
@@ -90,14 +92,64 @@ class GraphJepa(nn.Module):
             params_t.data.mul_(self.ema).add_((1 - self.ema)* params_s.data)
 
 
-    def forward(self,x,edge_index, mask_function: Callable ,edge_weight = None ):
-        context , target = mask_function(x, edge_index)
+    def forward(self,x,edge_index,edge_weight = None ):
+        context , target = self.mask_function(x, edge_index)
         context_enc = self.student_encoder(context)
         with torch.no_grad():
-            teacher_enc = self.teach_encoder(target) # Еще подсказку добавить ну там было у меня такое
-        out = self.predictor(context_enc)
+            teacher_enc = self.teach_encoder(target) 
+        out = self.predictor(context_enc) # Еще подсказку добавить ну там было у меня такое
 
         return loss(out,teacher_enc)
 
 
+import pytorch_lightning as L
+class JepaLight(L.LightningModule):
+    def __init__(self, model,cfg , debug = False):
+        super().__init__()
+        self.save_hyperparameters(ignore = ['model'])
+        self.debug = debug
+        self.model = model
+    def _debug_log(self,batch):
+        with torch.no_grad():
+             z = self.model.teacher_enc(batch.x,batch.edge_index) 
+             std = z.std(dim=0).mean() 
+             norm = z.norm(dim=-1).mean()
+             
+        self.log("debug_z_std", std, prog_bar=True)
+        self.log("debug_z_norm", norm, prog_bar=True)
         
+
+    def training_step(self, batch):
+        loss = self.model(batch.x , batch.edge_index)
+        self.log("train_loss", loss)
+        if self.debug : self._debug_log(batch)
+       
+        return loss
+    def validation_step(self, batch):
+        loss = self.model(batch.x , batch.edge_index)
+        if self.debug : self._debug_log(batch)
+        self.log("val_loss", loss)
+        return loss
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        self.model._ema()
+    def configure_optimizers(self):
+        params = [
+            {'params': self.model.student_enc.parameters(), 'lr': self.hparams.learning_rate},
+            {'params': self.model.predictor.parameters(), 'lr': self.hparams.learning_rate},
+        ]
+
+        from hydra.utils import instantiate
+
+        optimizer = instantiate(self.hparams.optimizer_cfg, params=params)
+        
+        if "scheduler_cfg" in self.hparams:
+            scheduler = instantiate(self.hparams.scheduler_cfg, optimizer=optimizer)
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": "epoch"
+                }
+            }
+        
+        return optimizer
