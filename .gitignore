@@ -2,3 +2,5 @@
 __pycache__/
 
 TODO.md
+outputs/
+lightning_logs/

@@ -5,10 +5,7 @@ from hydra.utils import instantiate
 from ..models.jepa import JepaLight
 @hydra.main(version_base="1.3", config_path="../../configs", config_name="config")
 def main(cfg: DictConfig):
-    # Установка глобального seed для воспроизводимости
     L.seed_everything(cfg.seed, workers=True)
-    
-    # Instantiate model with recursive instantiation for nested encoder/predictor
     model = instantiate(cfg.network, _recursive_=True)
     model_module = JepaLight(model=model, cfg=cfg.training)
 
@@ -21,10 +18,9 @@ def main(cfg: DictConfig):
 
     trainer = L.Trainer(
         **cfg.trainer,
-        callbacks=[checkpoint_callback]
+        #callbacks=[checkpoint_callback]
     )
 
-    # Instantiate datamodule with recursive instantiation for nested dataset
     datamodule = instantiate(cfg.datamodule, _recursive_=True)
     trainer.fit(model_module, datamodule=datamodule)
 

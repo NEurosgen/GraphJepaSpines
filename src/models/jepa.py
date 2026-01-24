@@ -189,16 +189,23 @@ class JepaLight(L.LightningModule):
     
     def configure_optimizers(self):
         from hydra.utils import instantiate
+        from omegaconf import OmegaConf
         
-        params = [
-            {'params': self.model.student_encoder.parameters(), 'lr': self.learning_rate},
-            {'params': self.model.predictor.parameters(), 'lr': self.learning_rate},
-        ]
+        params = list(self.model.student_encoder.parameters()) + list(self.model.predictor.parameters())
         
-        optimizer = instantiate(self.optimizer_cfg, params=params)
+
+        opt_cfg = OmegaConf.to_container(self.optimizer_cfg, resolve=True)
+        opt_target = opt_cfg.pop('_target_')
+        
+        import torch.optim as optim
+        optimizer_class = getattr(optim, opt_target.split('.')[-1])
+        optimizer = optimizer_class(params, lr=self.learning_rate, **opt_cfg)
         
         if self.scheduler_cfg is not None:
-            scheduler = instantiate(self.scheduler_cfg, optimizer=optimizer)
+            sched_cfg = OmegaConf.to_container(self.scheduler_cfg, resolve=True)
+            sched_target = sched_cfg.pop('_target_')
+            scheduler_class = getattr(optim.lr_scheduler, sched_target.split('.')[-1])
+            scheduler = scheduler_class(optimizer, **sched_cfg)
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
