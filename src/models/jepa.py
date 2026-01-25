@@ -160,6 +160,7 @@ class JepaLight(L.LightningModule):
         self.learning_rate = cfg.learning_rate
         self.optimizer_cfg = cfg.optimizer
         self.scheduler_cfg = cfg.get('scheduler', None)
+        self.sigma = 1
     
     def _debug_log(self, batch):
         with torch.no_grad():
@@ -171,14 +172,16 @@ class JepaLight(L.LightningModule):
         self.log("debug_z_norm", norm, prog_bar=True)
     
     def training_step(self, batch):
-        loss = self.model(batch.x, batch.edge_index)
+        edge_weight = torch.exp(-batch.edge_attr**2 / self.sigma**2)
+        loss = self.model(batch.x, batch.edge_index,edge_weight)
         self.log("train_loss", loss, prog_bar=True)
         if self.debug:
             self._debug_log(batch)
         return loss
     
     def validation_step(self, batch):
-        loss = self.model(batch.x, batch.edge_index)
+        edge_weight = torch.exp(-batch.edge_attr**2 / self.sigma**2)
+        loss = self.model(batch.x, batch.edge_index,edge_weight)
         if self.debug:
             self._debug_log(batch)
         self.log("val_loss", loss, prog_bar=True)

@@ -45,7 +45,8 @@ def main(cfg: DictConfig):
 
     trainer = L.Trainer(
         **cfg.trainer,
-        #callbacks=[checkpoint_callback]
+        #callbacks=[checkpoint_callback],
+        deterministic=True
     )
 
     datamodule = get_datamodule(cfg.datamodule)
