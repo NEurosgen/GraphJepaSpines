@@ -1,10 +1,8 @@
 import torch
 from torch import nn
 
-seed = 1# из конфига
 
-
-def sigreg(x: torch.Tensor, global_step: int, num_slices: int = 256) -> torch.Tensor:
+def sigreg(x: torch.Tensor, global_step: int, seed: int = 42, num_slices: int = 256) -> torch.Tensor:
     assert x.dim() == 2, f"sigreg expects [N, K], got {x.shape}"
     N, K = x.shape
     dev = dict(device=x.device, dtype=x.dtype)
@@ -68,82 +66,146 @@ class LeJEPA(nn.Module): # DEFECTED MODULE NEED TO REFACTOR
 
         loss = (1.0 - self.lambd) * sim_loss + self.lambd * sigreg_loss
         return loss
-from typing import Callable
+from typing import Callable, Optional
 import copy
 
-class GraphJepa(nn.Module):
-    def __init__(self, encoder, predictor ,mask_function: Callable,ema = 0.996):
-        self.mask_function = mask_function
 
-        self.mask_token = nn.Parameter(torch.tensor(1,encoder[0].in_channels))
-        torch.nn.init.normal_(self.mask_token,std=0.2)
+def default_random_mask(x: torch.Tensor, edge_index: torch.Tensor, mask_ratio: float = 0.3):
+    """
+    Default random node masking function.
+    Returns context (masked nodes) and target (original nodes for masked positions).
+    """
+    num_nodes = x.size(0)
+    num_mask = int(num_nodes * mask_ratio)
+    perm = torch.randperm(num_nodes, device=x.device)
+    mask_indices = perm[:num_mask]
+    
+    mask = torch.zeros(num_nodes, dtype=torch.bool, device=x.device)
+    mask[mask_indices] = True
+    
+    return x, mask
+
+
+class GraphJepa(nn.Module):
+    def __init__(
+        self, 
+        encoder: nn.Module, 
+        predictor: nn.Module,
+        mask_function: Optional[Callable] = None,
+        ema: float = 0.996,
+        mask_ratio: float = 0.3
+    ):
+        super().__init__()
+        
+        self.mask_ratio = mask_ratio
+        self.ema = ema
+        
+        self.mask_function = mask_function if mask_function is not None else default_random_mask
+        
+        if hasattr(encoder, 'proj'):
+            in_channels = encoder.proj.in_features
+        elif hasattr(encoder, 'in_channels'):
+            in_channels = encoder.in_channels
+        else:
+            in_channels = 128
+        
+        self.mask_token = nn.Parameter(torch.zeros(1, in_channels))
+        nn.init.normal_(self.mask_token, std=0.02)
+        
 
         self.student_encoder = encoder
         self.teach_encoder = copy.deepcopy(encoder)
-
-        for p in self.teach_encoder.parametrs():
+        for p in self.teach_encoder.parameters():
             p.requires_grad = False
-
-
+        
         self.predictor = predictor
+        self.loss_fn = nn.MSELoss()
+    
     @torch.no_grad()
     def _ema(self):
-        for params_s , params_t in zip(self.student_encoder.parametrs(),self.teach_encoder.parametrs()):
-            params_t.data.mul_(self.ema).add_((1 - self.ema)* params_s.data)
+        """Exponential moving average update for teacher encoder."""
+        for params_s, params_t in zip(
+            self.student_encoder.parameters(), 
+            self.teach_encoder.parameters()
+        ):
+            params_t.data.mul_(self.ema).add_((1 - self.ema) * params_s.data)
+    
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, edge_weight: Optional[torch.Tensor] = None):
+        _, mask = self.mask_function(x, edge_index, self.mask_ratio)
+        
+        x_masked = x.clone()
+        x_masked[mask] = self.mask_token.expand(mask.sum(), -1)
+        
+        context_enc = self.student_encoder(x_masked, edge_index, edge_weight)
+        
 
-
-    def forward(self,x,edge_index,edge_weight = None ):
-        context , target = self.mask_function(x, edge_index)
-        context_enc = self.student_encoder(context)
         with torch.no_grad():
-            teacher_enc = self.teach_encoder(target) 
-        out = self.predictor(context_enc) # Еще подсказку добавить ну там было у меня такое
-
-        return loss(out,teacher_enc)
-
-
+            teacher_enc = self.teach_encoder(x, edge_index, edge_weight)
+        
+        pred = self.predictor(context_enc)
+        loss = self.loss_fn(pred[mask], teacher_enc[mask].detach())
+        
+        return loss
 import pytorch_lightning as L
+
+
 class JepaLight(L.LightningModule):
-    def __init__(self, model,cfg , debug = False):
+    def __init__(self, model: GraphJepa, cfg, debug: bool = False):
         super().__init__()
-        self.save_hyperparameters(ignore = ['model'])
+        self.save_hyperparameters(ignore=['model'])
         self.debug = debug
         self.model = model
-    def _debug_log(self,batch):
+        
+        # Store cfg parameters for optimizer configuration
+        self.learning_rate = cfg.learning_rate
+        self.optimizer_cfg = cfg.optimizer
+        self.scheduler_cfg = cfg.get('scheduler', None)
+    
+    def _debug_log(self, batch):
         with torch.no_grad():
-             z = self.model.teacher_enc(batch.x,batch.edge_index) 
-             std = z.std(dim=0).mean() 
-             norm = z.norm(dim=-1).mean()
-             
+            z = self.model.teach_encoder(batch.x, batch.edge_index)
+            std = z.std(dim=0).mean()
+            norm = z.norm(dim=-1).mean()
+        
         self.log("debug_z_std", std, prog_bar=True)
         self.log("debug_z_norm", norm, prog_bar=True)
-        
-
+    
     def training_step(self, batch):
-        loss = self.model(batch.x , batch.edge_index)
-        self.log("train_loss", loss)
-        if self.debug : self._debug_log(batch)
-       
+        loss = self.model(batch.x, batch.edge_index)
+        self.log("train_loss", loss, prog_bar=True)
+        if self.debug:
+            self._debug_log(batch)
         return loss
+    
     def validation_step(self, batch):
-        loss = self.model(batch.x , batch.edge_index)
-        if self.debug : self._debug_log(batch)
-        self.log("val_loss", loss)
+        loss = self.model(batch.x, batch.edge_index)
+        if self.debug:
+            self._debug_log(batch)
+        self.log("val_loss", loss, prog_bar=True)
         return loss
+    
     def on_train_batch_end(self, outputs, batch, batch_idx):
         self.model._ema()
+    
     def configure_optimizers(self):
-        params = [
-            {'params': self.model.student_enc.parameters(), 'lr': self.hparams.learning_rate},
-            {'params': self.model.predictor.parameters(), 'lr': self.hparams.learning_rate},
-        ]
-
         from hydra.utils import instantiate
-
-        optimizer = instantiate(self.hparams.optimizer_cfg, params=params)
+        from omegaconf import OmegaConf
         
-        if "scheduler_cfg" in self.hparams:
-            scheduler = instantiate(self.hparams.scheduler_cfg, optimizer=optimizer)
+        params = list(self.model.student_encoder.parameters()) + list(self.model.predictor.parameters())
+        
+
+        opt_cfg = OmegaConf.to_container(self.optimizer_cfg, resolve=True)
+        opt_target = opt_cfg.pop('_target_')
+        
+        import torch.optim as optim
+        optimizer_class = getattr(optim, opt_target.split('.')[-1])
+        optimizer = optimizer_class(params, lr=self.learning_rate, **opt_cfg)
+        
+        if self.scheduler_cfg is not None:
+            sched_cfg = OmegaConf.to_container(self.scheduler_cfg, resolve=True)
+            sched_target = sched_cfg.pop('_target_')
+            scheduler_class = getattr(optim.lr_scheduler, sched_target.split('.')[-1])
+            scheduler = scheduler_class(optimizer, **sched_cfg)
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
