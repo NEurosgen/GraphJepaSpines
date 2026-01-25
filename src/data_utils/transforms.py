@@ -1,0 +1,195 @@
+import torch_geometric
+import torch
+
+
+def fast_normalization_by_features(data, eps=1e-6):
+    """
+    Считает среднее и std для каждого из 21 признака, 
+    игнорируя значения |x| <= eps.
+    """
+    mask = data.abs() > eps
+    means = torch.zeros(data.size(1))
+    stds = torch.ones(data.size(1))
+    
+    for i in range(data.size(1)):
+        col = data[:, i]
+        col_mask = mask[:, i]
+        
+        if torch.any(col_mask):
+            valid_data = col[col_mask]
+            means[i] = valid_data.mean()
+            stds[i] = valid_data.std() 
+        else:
+            means[i] = 0.0
+            stds[i] = 1.0
+            
+    return means, stds
+
+
+
+
+        
+
+class NormNoEps(torch.nn.Module):
+    def __init__(self, mean : torch.Tensor , std : torch.Tensor , eps: float = 0.0):
+        super().__init__()
+        self.register_buffer("mean", mean)
+        self.register_buffer("std", std)
+        if torch.any(std.abs() < 1e-8):
+            raise ValueError("Your std is too small. It's dangerous for division!")
+        self.eps = eps
+    def forward(self,x) -> torch.Tensor:
+        mask = (x.abs() > self.eps)
+        normalized_x  = (x - (self.mean))/(self.std)
+        return torch.where(mask,normalized_x,x)
+    
+
+class EdgeNorm(torch.nn.Module):
+    def __init__(self, mean : torch.Tensor , std: torch.Tensor):
+        super().__init__()
+        self.register_buffer("mean", mean)
+        self.register_buffer("std", std)
+        if torch.any(std.abs() < 1e-8):
+            raise ValueError("Your std is too small. It's dangerous for division!")
+    def forward(self, edge_attr):
+        return (edge_attr - self.mean)/self.std
+        
+
+class GenNormalize(torch.nn.Module):
+    def __init__(self, mean_x, std_x , mean_edge, std_edge, eps = 0):
+        super().__init__()
+        self.norm_x = NormNoEps(mean_x,std_x , eps)
+        self.norm_edge = EdgeNorm(mean_edge,std_edge)
+    def forward(self, data):
+        data = data.clone() 
+        data.x = self.norm_x(data.x)
+        if hasattr(data, 'edge_attr') and data.edge_attr is not None:
+            data.edge_attr = self.norm_edge(data.edge_attr)
+        return data
+
+
+
+import torch
+from torch_geometric.data import Data
+from torch_geometric.utils import subgraph, k_hop_subgraph
+
+class MaskData(torch.nn.Module):
+    def __init__(self, mask_ratio: float):
+        super().__init__()
+        self.mask_ratio = mask_ratio
+
+    def _get_random_patch_mask(self, data: Data) -> torch.Tensor:
+        """Optimized mask generation using estimated hop count."""
+        num_nodes = data.num_nodes
+        num_mask_goal = max(1, int(num_nodes * self.mask_ratio))
+        
+        device = data.x.device if data.x is not None else 'cpu'
+        mask = torch.zeros(num_nodes, dtype=torch.bool, device=device)
+        
+
+        num_edges = data.edge_index.size(1)
+        avg_degree = num_edges / (num_nodes + 1e-6)
+        
+
+        import math
+        if avg_degree > 1:
+            estimated_hops = max(1, int(math.log(num_mask_goal + 1) / math.log(avg_degree + 1e-6)))
+        else:
+            estimated_hops = min(num_mask_goal, 4)
+        estimated_hops = min(estimated_hops, 6)  
+        
+        start_node = torch.randint(0, num_nodes, (1,)).item()
+        
+        subset, _, _, _ = k_hop_subgraph(
+            node_idx=start_node,
+            num_hops=estimated_hops,
+            edge_index=data.edge_index,
+            relabel_nodes=False,
+            num_nodes=num_nodes
+        )
+        
+        if len(subset) < num_mask_goal and estimated_hops < 6:
+            subset, _, _, _ = k_hop_subgraph(
+                node_idx=start_node,
+                num_hops=estimated_hops + 1,
+                edge_index=data.edge_index,
+                relabel_nodes=False,
+                num_nodes=num_nodes
+            )
+        
+        selected = subset[:num_mask_goal] if len(subset) > num_mask_goal else subset
+        mask[selected] = True
+        
+        return mask
+
+    def _split_data_by_mask(self, data, mask):
+        num_nodes = data.num_nodes
+        if mask.sum() == 0:
+            mask[torch.randint(0, num_nodes, (1,)).item()] = True
+        if (~mask).sum() == 0:
+            true_idx = mask.nonzero(as_tuple=True)[0][0].item()
+            mask[true_idx] = False
+        
+        subset_ctx = ~mask
+        subset_tgt = mask
+        def build_subgraph(subset):
+            edge_index, edge_attr = subgraph(
+                subset, data.edge_index, edge_attr=data.edge_attr, 
+                relabel_nodes=True, num_nodes=data.num_nodes
+            )
+            
+            return Data(
+                x=data.x[subset],
+                pos=data.pos[subset] if data.pos is not None else None,
+                edge_index=edge_index,
+                edge_attr=edge_attr,
+                y=data.y[subset] if hasattr(data, 'y') and data.y is not None else None
+            )
+
+        return build_subgraph(subset_ctx), build_subgraph(subset_tgt)
+
+    def forward(self, data):
+        mask = self._get_random_patch_mask(data)
+        return self._split_data_by_mask(data, mask)
+
+
+class MaskNorm(torch.nn.Module):
+    def __init__(self,mean_x, std_x , mean_edge, std_edge,mask_ratio = 0.1 ,eps = 0 ):
+        super().__init__()
+        self.norm = GenNormalize(mean_x, std_x , mean_edge, std_edge, eps)
+        self.mask = MaskData(mask_ratio=mask_ratio)
+    def forward(self, data):
+        out = self.norm(data)
+        context,target = self.mask(out)
+        return context,target
+
+
+def create_mask_collate_fn(transform: MaskNorm = None):
+    from torch_geometric.data import Batch
+    
+    def mask_collate_fn(batch):
+        if transform is None:
+            return Batch.from_data_list(batch)
+        
+        contexts = []
+        targets = []
+        
+        for data in batch:
+            try:
+                ctx, tgt = transform(data)
+                if ctx.num_nodes > 0 and tgt.num_nodes > 0:
+                    contexts.append(ctx)
+                    targets.append(tgt)
+            except Exception:
+                continue
+        
+        if len(contexts) == 0:
+            return None
+        
+        context_batch = Batch.from_data_list(contexts)
+        target_batch = Batch.from_data_list(targets)
+        
+        return context_batch, target_batch
+    
+    return mask_collate_fn
+
