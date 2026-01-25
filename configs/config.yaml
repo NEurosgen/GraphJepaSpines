@@ -10,12 +10,14 @@ network:
     alpha: 0.1
     num_layers: 3
   predictor:
-    _target_: torch.nn.Linear
-    in_features: 64
-    out_features: 64
-  mask_function: null  # Will use default_random_mask
+    _target_: src.models.jepa.CrossAttentionPredictor
+    hidden_dim: 64
+    pos_dim: 3
+    num_heads: 2
+    dropout: 0.1
+  mask_function: null  # Will use MaskData
   ema: 0.996
-  mask_ratio: 0.3
+  mask_ratio: 0.02
 
 # Training configuration
 training:
@@ -42,7 +44,7 @@ datamodule:
   dataset:
     _target_: src.data_utils.datamodule.GraphDataSet
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
-  batch_size: 32
+  batch_size: 256
   num_workers: 4
   seed: ${seed}
   ratio: [0.7, 0.2, 0.1]
