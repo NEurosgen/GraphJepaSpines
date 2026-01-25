@@ -229,8 +229,9 @@ class JepaLight(L.LightningModule):
         self.sigma = 1
     
     def _debug_log(self, batch):
+        context_x , target_x = batch
         with torch.no_grad():
-            z = self.model.teach_encoder(batch.x, batch.edge_index)
+            z = self.model.teach_encoder(context_x.x, context_x.edge_index)
             std = z.std(dim=0).mean()
             norm = z.norm(dim=-1).mean()
         
