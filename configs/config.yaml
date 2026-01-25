@@ -15,15 +15,15 @@ network:
     pos_dim: 3
     num_heads: 2
     dropout: 0.1
-  mask_function: null  # Will use MaskData
+ 
   ema: 0.996
-  mask_ratio: 0.02
+  
 
 # Training configuration
 training:
   learning_rate: 1e-3
   weight_decay: 1e-5
-  max_epochs: 100
+  max_epochs: 2
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
@@ -37,6 +37,7 @@ trainer:
   accelerator: "gpu"
   devices: 1
   log_every_n_steps: 10
+  
 
 # DataModule configuration
 datamodule:
@@ -44,7 +45,7 @@ datamodule:
   dataset:
     _target_: src.data_utils.datamodule.GraphDataSet
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
-  batch_size: 256
-  num_workers: 4
+  batch_size: 512
+  num_workers: 6
   seed: ${seed}
   ratio: [0.7, 0.2, 0.1]

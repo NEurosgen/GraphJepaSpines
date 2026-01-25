@@ -4,9 +4,9 @@ import pytorch_lightning as L
 from hydra.utils import instantiate
 from ..models.jepa import JepaLight
 from ..data_utils.datamodule import GraphDataModule, GraphDataSet
-from ..data_utils.normalization import GenNormalize
+from ..data_utils.transforms import MaskNorm, GenNormalize, create_mask_collate_fn
 import torch
-
+torch.set_float32_matmul_precision('high')
 def load_stats(path):
     mean_x = torch.load(path+"means.pt")
     std_x = torch.load(path+"stds.pt")
@@ -15,18 +15,20 @@ def load_stats(path):
     return mean_x,std_x, mean_edge,std_edge
 
 def get_datamodule(cfg):
-    mean_x,std_x, mean_edge,std_edge = load_stats('/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/')
-    transfrom = GenNormalize(mean_x,std_x, mean_edge,std_edge)
-
-
-    ds = GraphDataSet(path = cfg.dataset.path,transform=transfrom)
+    mean_x, std_x, mean_edge, std_edge = load_stats('/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/')
+    
+    # Create transform for collate_fn (parallel masking in workers)
+    mask_norm = MaskNorm(mean_x, std_x, mean_edge, std_edge, mask_ratio=0.02)
+    collate_fn = create_mask_collate_fn(mask_norm)
+    
+    # Dataset without transform - masking happens in collate_fn
+    ds = GraphDataSet(path=cfg.dataset.path, transform=None)
 
     datamodule = GraphDataModule(ds, cfg.batch_size,
                                  num_workers=cfg.num_workers, 
-                                 seed = cfg.seed,
-                                 ratio = cfg.ratio,
-
-                                 )
+                                 seed=cfg.seed,
+                                 ratio=cfg.ratio,
+                                 collate_fn=collate_fn)
     return datamodule
 
 
@@ -44,6 +46,7 @@ def main(cfg: DictConfig):
     )
 
     trainer = L.Trainer(
+        profiler="simple",
         **cfg.trainer,
         #callbacks=[checkpoint_callback],
         deterministic=True

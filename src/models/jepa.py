@@ -4,97 +4,6 @@ from torch import nn
 
 
 from torch_geometric.data import Data
-from collections import deque
-import random
-from torch_geometric.utils import subgraph
-
-
-class MaskData(nn.Module):
-    def __init__(self, mask_ratio):
-        super().__init__()
-        self.mask_ratio = mask_ratio
-    def _get_bfs_mask(self, data: Data, mask_ratio: float = 0.15) -> torch.Tensor:
-        """
-        Generate a BFS-based mask for the graph.
-        Masked nodes form a contiguous region, simulating realistic occlusion.
-        """
-        num_nodes = data.num_nodes
-        device = data.x.device if data.x is not None else data.edge_index.device
-        
-        num_mask = max(1, int(num_nodes * mask_ratio))
-        adj_list = [[] for _ in range(num_nodes)]
-        row, col = data.edge_index
-        for i in range(row.size(0)):
-            u, v = row[i].item(), col[i].item()
-            adj_list[u].append(v)
-        
-        mask = torch.zeros(num_nodes, dtype=torch.bool, device=device)
-        visited = torch.zeros(num_nodes, dtype=torch.bool, device=device)
-        current_masked_count = 0
-        q = deque()
-
-        while current_masked_count < num_mask:
-            if not q:
-                unmasked_indices = (~mask).nonzero(as_tuple=False).view(-1)
-                if len(unmasked_indices) == 0:
-                    break
-                start_node = unmasked_indices[random.randint(0, len(unmasked_indices) - 1)].item()
-                q.append(start_node)
-                visited[start_node] = True
-                mask[start_node] = True
-                current_masked_count += 1
-            
-            if current_masked_count >= num_mask:
-                break
-            
-            u = q.popleft()
-            neighbors = adj_list[u]
-            random.shuffle(neighbors)
-            
-            for v in neighbors:
-                if not visited[v]:
-                    visited[v] = True
-                    mask[v] = True
-                    current_masked_count += 1
-                    q.append(v)
-                    if current_masked_count >= num_mask:
-                        break
-        
-        return mask
-
-    def _split_data_by_mask(self, data, mask):
-        # Handle pos if available
-        pos_ctx = data.pos[~mask] if data.pos is not None else None
-        pos_tgt = data.pos[mask] if data.pos is not None else None
-        
-        # Context (Visible)
-        subset_ctx = ~mask
-        edge_index_ctx, edge_attr_ctx = subgraph(
-            subset_ctx, data.edge_index, edge_attr=data.edge_attr, relabel_nodes=True, num_nodes=data.num_nodes
-        )
-        batch_ctx = data.batch[subset_ctx] if hasattr(data, 'batch') and data.batch is not None else None
-        context_data = Data(
-            x=data.x[subset_ctx], pos=pos_ctx,
-            edge_index=edge_index_ctx, edge_attr=edge_attr_ctx, batch=batch_ctx
-        )
-
-        # Target (Masked)
-        subset_tgt = mask
-        batch_tgt = data.batch[subset_tgt] if hasattr(data, 'batch') and data.batch is not None else None
-
-        edge_index_tgt, edge_attr_tgt = subgraph(
-            subset_tgt, data.edge_index, edge_attr=data.edge_attr, relabel_nodes=True, num_nodes=data.num_nodes
-        )
-        target_data = Data(
-            x=data.x[subset_tgt], pos=pos_tgt, edge_index=edge_index_tgt, edge_attr=edge_attr_tgt, 
-            batch=batch_tgt
-        )
-        return context_data, target_data
-        
-    def forward(self, data):
-        mask = self._get_bfs_mask(data , self.mask_ratio)
-        context_data, target_data  = self._split_data_by_mask(data , mask)
-        return context_data, target_data
 
 
 class CrossAttentionPredictor(nn.Module):
@@ -108,11 +17,7 @@ class CrossAttentionPredictor(nn.Module):
     def __init__(self, hidden_dim: int, pos_dim: int = 3, num_heads: int = 4, dropout: float = 0.1):
         super().__init__()
         self.hidden_dim = hidden_dim
-        
-        # Project positions to embedding space
         self.pos_embed = nn.Linear(pos_dim, hidden_dim)
-        
-        # Cross-attention: query = target positions, key/value = context
         self.cross_attn = nn.MultiheadAttention(
             embed_dim=hidden_dim, 
             num_heads=num_heads, 
@@ -120,7 +25,7 @@ class CrossAttentionPredictor(nn.Module):
             batch_first=True
         )
         
-        # MLP head for final prediction
+
         self.mlp = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim * 2),
             nn.GELU(),
@@ -140,7 +45,6 @@ class CrossAttentionPredictor(nn.Module):
         Returns:
             pred: [num_target, hidden_dim] - predicted embeddings for target nodes
         """
-        # Normalize positions (zero-mean, unit-variance) to handle varying scales
         all_pos = torch.cat([context_pos, target_pos], dim=0)
         pos_mean = all_pos.mean(dim=0, keepdim=True)
         pos_std = all_pos.std(dim=0, keepdim=True).clamp(min=1e-6)
@@ -148,7 +52,7 @@ class CrossAttentionPredictor(nn.Module):
         context_pos_norm = (context_pos - pos_mean) / pos_std
         target_pos_norm = (target_pos - pos_mean) / pos_std
         
-        # Combine context embeddings with positional information
+
         context_kv = context_emb + self.pos_embed(context_pos_norm)
         
         # Query from target positions
@@ -253,16 +157,14 @@ class GraphJepa(nn.Module):
         self, 
         encoder: nn.Module, 
         predictor: nn.Module,
-        mask_function = None,
+
         ema: float = 0.996,
-        mask_ratio: float = 0.3
     ):
         super().__init__()
         
-        self.mask_ratio = mask_ratio
+
         self.ema = ema
         
-        self.mask_function = mask_function if mask_function is not None else MaskData(mask_ratio=mask_ratio)
         
         if hasattr(encoder, 'proj'):
             in_channels = encoder.proj.in_features
@@ -292,13 +194,12 @@ class GraphJepa(nn.Module):
         ):
             params_t.data.mul_(self.ema).add_((1 - self.ema) * params_s.data)
     
-    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, pos: torch.Tensor, edge_weight: Optional[torch.Tensor] = None):
-        context, target = self.mask_function(Data(x=x, edge_index=edge_index, edge_attr=edge_weight, pos=pos))
+    def forward(self, context, target):
+
         
-        # Encode context with student encoder
+
         context_enc = self.student_encoder(context.x, context.edge_index, context.edge_attr)
         
-        # Encode target with teacher encoder (no gradients)
         with torch.no_grad():
             teacher_enc = self.teach_encoder(target.x, target.edge_index, target.edge_attr)
         
@@ -337,19 +238,23 @@ class JepaLight(L.LightningModule):
         self.log("debug_z_norm", norm, prog_bar=True)
     
     def training_step(self, batch):
-        edge_weight = torch.exp(-batch.edge_attr**2 / self.sigma**2)
-        loss = self.model(batch.x, batch.edge_index, batch.pos, edge_weight)
+        context_batch, target_batch = batch
+        context_batch.edge_attr = torch.exp(-context_batch.edge_attr**2 / self.sigma**2)
+        target_batch.edge_attr = torch.exp(-target_batch.edge_attr**2 / self.sigma**2)
+        loss = self.model(context_batch,target_batch)
         self.log("train_loss", loss, prog_bar=True)
         if self.debug:
             self._debug_log(batch)
         return loss
     
     def validation_step(self, batch):
-        edge_weight = torch.exp(-batch.edge_attr**2 / self.sigma**2)
-        loss = self.model(batch.x, batch.edge_index, batch.pos, edge_weight)
+        context_batch, target_batch = batch
+        context_batch.edge_attr = torch.exp(-context_batch.edge_attr**2 / self.sigma**2)
+        target_batch.edge_attr = torch.exp(-target_batch.edge_attr**2 / self.sigma**2)
+        loss = self.model(context_batch,target_batch)
+        self.log("val_loss", loss, prog_bar=True)
         if self.debug:
             self._debug_log(batch)
-        self.log("val_loss", loss, prog_bar=True)
         return loss
     
     def on_train_batch_end(self, outputs, batch, batch_idx):
