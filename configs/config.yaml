@@ -8,7 +8,7 @@ network:
     in_channels: 21  # Matches dataset feature dimension
     out_channels: 64
     alpha: 0.1
-    num_layers: 3
+    num_layers: 3  
   predictor:
     _target_: src.models.jepa.CrossAttentionPredictor
     hidden_dim: 64
@@ -23,7 +23,7 @@ network:
 training:
   learning_rate: 1e-3
   weight_decay: 1e-5
-  max_epochs: 2
+  max_epochs: 10
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
