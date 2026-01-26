@@ -7,3 +7,6 @@ lightning_logs/
 
 
 *.ipynb
+
+exp/
+checkpoints/
