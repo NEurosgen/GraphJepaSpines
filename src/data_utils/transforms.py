@@ -61,11 +61,19 @@ class GenNormalize(torch.nn.Module):
         self.norm_x = NormNoEps(mean_x,std_x , eps)
         self.norm_edge = EdgeNorm(mean_edge,std_edge)
     def forward(self, data):
-        data = data.clone() 
-        data.x = self.norm_x(data.x)
+        # Memory efficient: create new Data with normalized tensors instead of cloning
+        from torch_geometric.data import Data
+        new_edge_attr = None
         if hasattr(data, 'edge_attr') and data.edge_attr is not None:
-            data.edge_attr = self.norm_edge(data.edge_attr)
-        return data
+            new_edge_attr = self.norm_edge(data.edge_attr)
+        
+        return Data(
+            x=self.norm_x(data.x),
+            edge_index=data.edge_index,
+            edge_attr=new_edge_attr,
+            pos=data.pos if hasattr(data, 'pos') else None,
+            y=data.y if hasattr(data, 'y') else None,
+        )
 
 
 

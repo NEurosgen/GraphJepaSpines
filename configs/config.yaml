@@ -23,7 +23,7 @@ network:
 training:
   learning_rate: 1e-3
   weight_decay: 1e-5
-  max_epochs: 2
+  max_epochs: 10
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
@@ -46,6 +46,6 @@ datamodule:
     _target_: src.data_utils.datamodule.GraphDataSet
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
   batch_size: 512
-  num_workers: 6
+  num_workers: 2
   seed: ${seed}
   ratio: [0.7, 0.2, 0.1]

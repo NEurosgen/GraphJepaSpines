@@ -16,36 +16,42 @@ import os
 
 
 class GraphDataSet(Dataset):
-    def __init__(self, path, transform=None):
-        super().__init__(None, None) # 
+    def __init__(self, path, transform=None, save_cache=False):
+        super().__init__(None, None) 
         self.my_transform = transform
         self.path = path
         self.file_names = [f for f in os.listdir(self.path) if f.endswith('.pt')]
 
         self.cache = dict()
+        self.save_cache = save_cache
+
     
     def len(self):
         return len(self.file_names)
     
-    def get(self, idx):
+    def _load_to_cache(self, idx):
+        file_path = os.path.join(self.path, self.file_names[idx])
+        out = torch.load(file_path, weights_only=False)
+        self.cache[idx] = out
+        return out
 
+    def get(self, idx):
+        if not self.save_cache:
+            out = self._load_to_cache(idx)
+            return out
         if self.cache.get(idx, False):
             out = self.cache[idx]
         else:
-            file_path = os.path.join(self.path, self.file_names[idx])
-            out = torch.load(file_path, weights_only=False)
-            self.cache[idx] = out
+            out = self._load_to_cache(idx)
+            
         if self.my_transform is not None:
             return self.my_transform(out)
         
         return out
 
 
-
-
-
 class GraphDataModule(pl.LightningDataModule):
-    def __init__(self, dataset, batch_size: int, num_workers: int = 4, seed: int = 42, ratio: list = None, collate_fn = None):
+    def __init__(self, dataset, batch_size: int, num_workers: int = 4, seed: int = 42, ratio: list = None, collate_fn = None, preload_data: bool = True):
         super().__init__()
         self.dataset = dataset
         self.batch_size = batch_size
