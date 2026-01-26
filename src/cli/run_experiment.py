@@ -272,7 +272,7 @@ if __name__ == "__main__":
 
     PARAM_NAME = "model.alpha"
     
-    PARAM_VALUES = [i/100 for i in range(0,101,5)]
+    PARAM_VALUES = [i/100 for i in range(25,101,5)]
     
 
     SEEDS = [42, 123, 456]
