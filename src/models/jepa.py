@@ -209,7 +209,8 @@ class GraphJepa(nn.Module):
             context_pos=context.pos,
             target_pos=target.pos
         )
-        
+
+    
         loss = self.loss_fn(pred, teacher_enc.detach())
         
         return loss
@@ -227,25 +228,55 @@ class JepaLight(L.LightningModule):
         self.optimizer_cfg = cfg.optimizer
         self.scheduler_cfg = cfg.get('scheduler', None)
         self.sigma = 1
-    
+
     def _debug_log(self, batch):
+        context_x, target_x = batch
         with torch.no_grad():
-            z = self.model.teach_encoder(batch.x, batch.edge_index)
-            std = z.std(dim=0).mean()
+            z = self.model.student_encoder(context_x.x, context_x.edge_index)
+            
+            # --- Существующие метрики ---
+            std_z = torch.sqrt(z.var(dim=0) + 1e-4)
+            std_loss = torch.mean(torch.nn.functional.relu(2 - std_z)) 
+
+            
+            #std = z.std(dim=0).mean()
             norm = z.norm(dim=-1).mean()
-        
-        self.log("debug_z_std", std, prog_bar=True)
-        self.log("debug_z_norm", norm, prog_bar=True)
+            self.log("debug_z_std", std_z.mean(), prog_bar=True)
+            self.log("debug_z_norm", norm, prog_bar=True)
+
+
+            z_centered = z - z.mean(dim=0, keepdim=True)
+            _, S, _ = torch.linalg.svd(z_centered, full_matrices=False)
+            
+
+            self.log("debug_svd_max", S[0], prog_bar=False)
+            
+            self.log("debug_svd_2nd", S[1], prog_bar=False)
+            self.log("debug_svd_3rd", S[2], prog_bar=False)
+            
+
+            self.log("debug_svd_min", S[-1], prog_bar=False)
+            p = S / (S.sum() + 1e-9)
+            entropy = -torch.sum(p * torch.log(p + 1e-9))
+            rank_me = torch.exp(entropy)
+            
+            self.log("debug_rank_me", rank_me, prog_bar=True)
+            cond_number = S[0] / (S[-1] + 1e-9)
+            self.log("debug_cond_number", cond_number, prog_bar=False)
+            return std_loss
     
     def training_step(self, batch):
         context_batch, target_batch = batch
         context_batch.edge_attr = torch.exp(-context_batch.edge_attr**2 / self.sigma**2)
         target_batch.edge_attr = torch.exp(-target_batch.edge_attr**2 / self.sigma**2)
         loss = self.model(context_batch,target_batch)
-        self.log("train_loss", loss, prog_bar=True)
+
+ 
         if self.debug:
-            self._debug_log(batch)
-        return loss
+            std_loss=self._debug_log(batch)
+        total_loss = loss 
+        self.log("train_loss", total_loss, prog_bar=True)
+        return total_loss
     
     def validation_step(self, batch):
         context_batch, target_batch = batch
