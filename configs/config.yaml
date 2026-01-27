@@ -46,6 +46,6 @@ datamodule:
     _target_: src.data_utils.datamodule.GraphDataSet
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
   batch_size: 512
-  num_workers: 6
+  num_workers: 3
   seed: ${seed}
   ratio: [0.7, 0.2, 0.1]

@@ -106,12 +106,12 @@ class GraphRes(nn.Module):
         super().__init__()
         self.model = model
         self.alpha = alpha
-        self.w1 = nn.Linear(in_channels, in_channels, bias=False)
-        self.w2 = nn.Linear(in_channels, in_channels, bias=False)
+        # self.w1 = nn.Linear(in_channels, in_channels, bias=False)
+        # self.w2 = nn.Linear(in_channels, in_channels, bias=False)
     
     def forward(self, x, x0, edge_index, edge_weight=None):
         ax = self.model(x, edge_index, edge_weight)
-        out = (1 - self.alpha) * self.w1(ax) + self.alpha * self.w2(x0)
+        out = (1 - self.alpha) * ax + self.alpha * x0
         return out, x0, edge_index
 
 import torch
@@ -127,11 +127,10 @@ class GraphGCNResNorm(nn.Module):
         model = GCNConv(in_channels=in_channels, out_channels=in_channels, add_self_loops=True, normalize=True)
         self.res = GraphRes(in_channels=in_channels, alpha=alpha, model=model)
         self.norm = BatchRmsNorm(in_channels=in_channels)
-        self.act = nn.ReLU()
     
     def forward(self, x, x0, edge_index, edge_weight=None):
         out, _, _ = self.res(x, x0, edge_index, edge_weight)
-        out = self.act(self.norm(out))
+        out = self.norm(out)
         return out, x0, edge_index
 
 
@@ -147,10 +146,13 @@ class GraphGcnEncoder(nn.Module):
             GraphGCNResNorm(in_channels=out_channels, alpha=alpha)
             for _ in range(num_layers)
         ])
+        self.act = nn.Tanh()
     
     def forward(self, x, edge_index, edge_weight=None):
         x = self.proj(x)
         x0 = x.clone()
-        for layer in self.layers:
+        for layer in self.layers[:-1]:
             x, x0, edge_index = layer(x, x0, edge_index, edge_weight)
+            x = self.act(x)
+        x, x0, edge_index = self.layers[-1](x, x0, edge_index, edge_weight)
         return x
