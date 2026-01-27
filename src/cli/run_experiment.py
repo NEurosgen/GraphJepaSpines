@@ -28,7 +28,7 @@ BASE_CONFIG = {
         "in_channels": 21,
         "out_channels": 64,
         "alpha": 0.1,
-        "num_layers": 3, 
+        "num_layers": 6, 
         "ema": 0.996,
     },
     "predictor": {
@@ -38,7 +38,7 @@ BASE_CONFIG = {
         "dropout": 0.1,
     },
     "training": {
-        "learning_rate": 1e-3,
+        "learning_rate": 1e-2,
         "weight_decay": 1e-5,
         "max_epochs": 10,
     },
@@ -272,7 +272,7 @@ if __name__ == "__main__":
 
     PARAM_NAME = "model.alpha"
     
-    PARAM_VALUES = [i/100 for i in range(25,101,5)]
+    PARAM_VALUES = [i/100 for i in range(0,101,5)]
     
 
     SEEDS = [42, 123, 456]
