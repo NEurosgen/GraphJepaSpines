@@ -272,7 +272,7 @@ if __name__ == "__main__":
 
     PARAM_NAME = "model.num_layers"
     
-    PARAM_VALUES = [i for i in range(1,10)]
+    PARAM_VALUES = [i for i in range(1,13)]
     
 
     SEEDS = [42, 123, 456]
