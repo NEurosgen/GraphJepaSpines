@@ -146,7 +146,7 @@ class GraphGcnEncoder(nn.Module):
             GraphGCNResNorm(in_channels=out_channels, alpha=alpha)
             for _ in range(num_layers)
         ])
-        self.act = nn.Tanh()
+        self.act = nn.ReLU()
     
     def forward(self, x, edge_index, edge_weight=None):
         x = self.proj(x)
