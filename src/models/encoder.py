@@ -142,6 +142,7 @@ class GraphGcnEncoder(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.proj = nn.Linear(in_features=in_channels, out_features=out_channels, bias=False)
+        self.proj.requires_grad_(False)
         self.layers = nn.ModuleList([
             GraphGCNResNorm(in_channels=out_channels, alpha=alpha)
             for _ in range(num_layers)

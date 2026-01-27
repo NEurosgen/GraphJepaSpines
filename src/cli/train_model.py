@@ -36,7 +36,7 @@ def get_datamodule(cfg):
 def main(cfg: DictConfig):
     L.seed_everything(cfg.seed, workers=True)
     model = instantiate(cfg.network, _recursive_=True)
-    model_module = JepaLight(model=model, cfg=cfg.training, debug = True)
+    model_module = JepaLight(model=model, cfg=cfg.training, debug = False)
 
     checkpoint_callback = L.callbacks.ModelCheckpoint(
         monitor="val_loss",
@@ -46,7 +46,6 @@ def main(cfg: DictConfig):
     )
 
     trainer = L.Trainer(
-        profiler="simple",
         **cfg.trainer,
         #callbacks=[checkpoint_callback],
         deterministic=True

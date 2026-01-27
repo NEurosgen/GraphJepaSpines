@@ -7,7 +7,7 @@ network:
     _target_: src.models.encoder.GraphGcnEncoder
     in_channels: 21  # Matches dataset feature dimension
     out_channels: 64
-    alpha: 0.5
+    alpha: 0.1
     num_layers: 3
   predictor:
     _target_: src.models.jepa.CrossAttentionPredictor
@@ -21,7 +21,7 @@ network:
 
 # Training configuration
 training:
-  learning_rate: 1e-3
+  learning_rate: 1e-2
   weight_decay: 1e-5
   max_epochs: 10
   optimizer:

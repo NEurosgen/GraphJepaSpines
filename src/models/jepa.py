@@ -209,7 +209,8 @@ class GraphJepa(nn.Module):
             context_pos=context.pos,
             target_pos=target.pos
         )
-        
+
+    
         loss = self.loss_fn(pred, teacher_enc.detach())
         
         return loss
@@ -269,12 +270,11 @@ class JepaLight(L.LightningModule):
         context_batch.edge_attr = torch.exp(-context_batch.edge_attr**2 / self.sigma**2)
         target_batch.edge_attr = torch.exp(-target_batch.edge_attr**2 / self.sigma**2)
         loss = self.model(context_batch,target_batch)
-        
 
-        
+ 
         if self.debug:
             std_loss=self._debug_log(batch)
-        total_loss = 0*loss + 10 * std_loss
+        total_loss = loss 
         self.log("train_loss", total_loss, prog_bar=True)
         return total_loss
     
