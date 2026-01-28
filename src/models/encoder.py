@@ -106,13 +106,13 @@ class GraphRes(nn.Module):
         super().__init__()
         self.model = model
         self.alpha = alpha
-        self.w1 = nn.Linear(in_channels, in_channels, bias=False) # Для второго случая
-        self.w2 = nn.Linear(in_channels, in_channels, bias=False)
+        #self.w1 = nn.Linear(in_channels, in_channels, bias=False) # Для второго случая
+        #self.w2 = nn.Linear(in_channels, in_channels, bias=False)
     
-    def forward(self, x, x0, edge_index, edge_weight=None):
+    def forward(self, x, edge_index, edge_weight=None):
         ax = self.model(x, edge_index, edge_weight)
-        out = (1 - self.alpha) * self.w1(ax) + self.alpha * self.w2(x0)
-        return out, x0, edge_index
+        out = (1 - self.alpha) * ax + self.alpha * x
+        return out, edge_index
 
 import torch
 import torch.nn as nn
@@ -128,10 +128,10 @@ class GraphGCNResNorm(nn.Module):
         self.res = GraphRes(in_channels=in_channels, alpha=alpha, model=model)
         self.norm = BatchRmsNorm(in_channels=in_channels)
     
-    def forward(self, x, x0, edge_index, edge_weight=None):
-        out, _, _ = self.res(x, x0, edge_index, edge_weight)
+    def forward(self, x, edge_index, edge_weight=None):
+        out, _ = self.res(x, edge_index, edge_weight)
         out = self.norm(out)
-        return out, x0, edge_index
+        return out, edge_index
 
 
 
@@ -153,7 +153,7 @@ class GraphGcnEncoder(nn.Module):
         x = self.proj(x)
         x0 = x.clone()
         for layer in self.layers[:-1]:
-            x, x0, edge_index = layer(x, x0, edge_index, edge_weight)
+            x, edge_index = layer(x, edge_index, edge_weight)
             x = self.act(x)
-        x, x0, edge_index = self.layers[-1](x, x0, edge_index, edge_weight)
+        x, edge_index = self.layers[-1](x, edge_index, edge_weight)
         return x
