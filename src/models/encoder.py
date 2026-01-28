@@ -94,25 +94,7 @@ class GraphNormv2(nn.Module):               # Слишком тяжело для
         
         return self.gamma * x_scaled + self.beta
     
-class GraphRes(nn.Module):
-    def __init__(self, in_channels, alpha, model):
-        '''
-        Residual connection wrapper for graph convolution layers.
-        
-        :param in_channels: Number of input channels
-        :param alpha: Residual connection weight (alpha * x0 + (1-alpha) * conv(x))
-        :param model: Graph convolution model (e.g., GCNConv)
-        '''
-        super().__init__()
-        self.model = model
-        self.alpha = alpha
-        # self.w1 = nn.Linear(in_channels, in_channels, bias=False)
-        # self.w2 = nn.Linear(in_channels, in_channels, bias=False)
-    
-    def forward(self, x, x0, edge_index, edge_weight=None):
-        ax = self.model(x, edge_index, edge_weight)
-        out = (1 - self.alpha) * ax + self.alpha * x0
-        return out, x0, edge_index
+
 
 import torch
 import torch.nn as nn
@@ -120,40 +102,37 @@ from torch_geometric.nn import GCNConv
 
 
 class GraphGCNResNorm(nn.Module):
-    def __init__(self, in_channels, alpha=0.1):
+    def __init__(self, in_channels):
         super().__init__()
         self.in_channels = in_channels
-        self.alpha = alpha
-        model = GCNConv(in_channels=in_channels, out_channels=in_channels, add_self_loops=True, normalize=True)
-        self.res = GraphRes(in_channels=in_channels, alpha=alpha, model=model)
+        self.model = GCNConv(in_channels=in_channels, out_channels=in_channels, add_self_loops=True, normalize=True)
         self.norm = BatchRmsNorm(in_channels=in_channels)
     
-    def forward(self, x, x0, edge_index, edge_weight=None):
-        out, _, _ = self.res(x, x0, edge_index, edge_weight)
+    def forward(self, x, edge_index, edge_weight=None):
+        out = self.model(x, edge_index, edge_weight)
         out = self.norm(out)
-        return out, x0, edge_index
+        return out
 
 
 
 
 class GraphGcnEncoder(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, alpha: float = 0.1, num_layers: int = 1):
+    def __init__(self, in_channels: int, out_channels: int, num_layers: int = 1):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.proj = nn.Linear(in_features=in_channels, out_features=out_channels, bias=False)
         self.proj.requires_grad_(False)
         self.layers = nn.ModuleList([
-            GraphGCNResNorm(in_channels=out_channels, alpha=alpha)
+            GraphGCNResNorm(in_channels=out_channels)
             for _ in range(num_layers)
         ])
         self.act = nn.ReLU()
     
     def forward(self, x, edge_index, edge_weight=None):
         x = self.proj(x)
-        x0 = x.clone()
         for layer in self.layers[:-1]:
-            x, x0, edge_index = layer(x, x0, edge_index, edge_weight)
+            x = layer(x, edge_index, edge_weight)
             x = self.act(x)
-        x, x0, edge_index = self.layers[-1](x, x0, edge_index, edge_weight)
+        x = self.layers[-1](x, edge_index, edge_weight)
         return x

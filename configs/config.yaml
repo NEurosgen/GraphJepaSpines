@@ -7,7 +7,6 @@ network:
     _target_: src.models.encoder.GraphGcnEncoder
     in_channels: 21  # Matches dataset feature dimension
     out_channels: 64
-    alpha: 0
     num_layers: 6
   predictor:
     _target_: src.models.jepa.CrossAttentionPredictor
@@ -27,9 +26,9 @@ training:
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
-  scheduler:
-    _target_: torch.optim.lr_scheduler.CosineAnnealingLR
-    T_max: ${training.max_epochs}
+  # scheduler:    # Для соотвествия с экспериментом
+  #   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  #   T_max: ${training.max_epochs}
 
 # Trainer configuration
 trainer:

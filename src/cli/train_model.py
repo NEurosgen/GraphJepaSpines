@@ -18,7 +18,7 @@ def get_datamodule(cfg):
     mean_x, std_x, mean_edge, std_edge = load_stats('/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/')
     
     # Create transform for collate_fn (parallel masking in workers)
-    mask_norm = MaskNorm(mean_x, std_x, mean_edge, std_edge, mask_ratio=0.02)
+    mask_norm = MaskNorm(mean_x, std_x, mean_edge, std_edge, mask_ratio=0.01) # mask ratio тоже в конфиг надо вынести
     collate_fn = create_mask_collate_fn(mask_norm)
     
     # Dataset without transform - masking happens in collate_fn
