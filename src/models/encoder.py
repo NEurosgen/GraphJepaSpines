@@ -106,12 +106,12 @@ class GraphRes(nn.Module):
         super().__init__()
         self.model = model
         self.alpha = alpha
-        # self.w1 = nn.Linear(in_channels, in_channels, bias=False)
-        # self.w2 = nn.Linear(in_channels, in_channels, bias=False)
+        self.w1 = nn.Linear(in_channels, in_channels, bias=False) # Для второго случая
+        self.w2 = nn.Linear(in_channels, in_channels, bias=False)
     
     def forward(self, x, x0, edge_index, edge_weight=None):
         ax = self.model(x, edge_index, edge_weight)
-        out = (1 - self.alpha) * ax + self.alpha * x0
+        out = (1 - self.alpha) * self.w1(ax) + self.alpha * self.w2(x0)
         return out, x0, edge_index
 
 import torch
