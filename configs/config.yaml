@@ -7,13 +7,13 @@ network:
     _target_: src.models.encoder.GraphGcnEncoder
     in_channels: 21  # Matches dataset feature dimension
     out_channels: 64
-    alpha: 0.1
-    num_layers: 3
+    alpha: 0
+    num_layers: 6
   predictor:
     _target_: src.models.jepa.CrossAttentionPredictor
     hidden_dim: 64
     pos_dim: 3
-    num_heads: 4
+    num_heads: 2
     dropout: 0.1
  
   ema: 0.996
