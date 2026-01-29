@@ -46,5 +46,7 @@ datamodule:
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
   batch_size: 512
   num_workers: 2
+  knn: -1
+  mask_ratio: 0.01
   seed: ${seed}
   ratio: [0.7, 0.2, 0.1]
