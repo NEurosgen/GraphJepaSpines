@@ -14,7 +14,7 @@ network:
     pos_dim: 3
     num_heads: 2
     dropout: 0.1
- 
+  lambda: 0.1
   ema: 0.996
   
 
