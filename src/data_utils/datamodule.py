@@ -51,7 +51,7 @@ class GraphDataSet(Dataset):
 
 
 class GraphDataModule(pl.LightningDataModule):
-    def __init__(self, dataset, batch_size: int, num_workers: int = 4, seed: int = 42, ratio: list = None, collate_fn = None, preload_data: bool = True):
+    def __init__(self, dataset, batch_size: int, num_workers: int = 4, seed: int = 42, ratio: list = None, collate_fn = None):
         super().__init__()
         self.dataset = dataset
         self.batch_size = batch_size

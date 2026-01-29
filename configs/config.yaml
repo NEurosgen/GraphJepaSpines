@@ -7,7 +7,6 @@ network:
     _target_: src.models.encoder.GraphGcnEncoder
     in_channels: 21  # Matches dataset feature dimension
     out_channels: 64
-    alpha: 0
     num_layers: 6
   predictor:
     _target_: src.models.jepa.CrossAttentionPredictor
@@ -27,9 +26,9 @@ training:
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
-  scheduler:
-    _target_: torch.optim.lr_scheduler.CosineAnnealingLR
-    T_max: ${training.max_epochs}
+  # scheduler:    # Для соотвествия с экспериментом
+  #   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  #   T_max: ${training.max_epochs}
 
 # Trainer configuration
 trainer:
@@ -47,5 +46,7 @@ datamodule:
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
   batch_size: 512
   num_workers: 2
+  knn: -1
+  mask_ratio: 0.01
   seed: ${seed}
   ratio: [0.7, 0.2, 0.1]

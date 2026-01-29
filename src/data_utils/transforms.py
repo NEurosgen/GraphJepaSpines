@@ -1,5 +1,6 @@
 import torch_geometric
 import torch
+from torch_geometric.nn import knn_graph
 
 
 def fast_normalization_by_features(data, eps=1e-6):
@@ -73,13 +74,53 @@ class GenNormalize(torch.nn.Module):
             edge_attr=new_edge_attr,
             pos=data.pos if hasattr(data, 'pos') else None,
             y=data.y if hasattr(data, 'y') else None,
+            batch = data.batch if hasattr(data, 'batch') else None,
         )
 
 
 
 import torch
 from torch_geometric.data import Data
-from torch_geometric.utils import subgraph, k_hop_subgraph
+from torch_geometric.utils import subgraph, k_hop_subgraph, to_undirected
+
+class GraphPruning(torch.nn.Module):
+    def __init__(self, k = -1, mutual = False):
+        super().__init__()
+        self.k = k
+        self.mutual = mutual
+    def forward(self, data):
+        if self.k < 0:
+            return data
+        batch = data.batch
+        knn_edge_index = knn_graph(data.pos,self.k,batch,loop=False)
+        row,col = knn_edge_index
+        num_nodes = data.num_nodes
+        if self.mutual:
+            knn_hashes = row*num_nodes + col
+            knn_hashes_rev = col*num_nodes + row
+            is_mutual = torch.isin(knn_hashes,knn_hashes_rev)
+            valid_hashes = knn_hashes[is_mutual]
+        else:
+            valid_hashes = row*num_nodes + col
+        curr_row, curr_col = data.edge_index
+        curr_hashes = curr_row * num_nodes + curr_col
+        mask = torch.isin(curr_hashes, valid_hashes)
+        new_edge_index = data.edge_index[:, mask]
+        new_edge_attr = None
+        if data.edge_attr is not None:
+            new_edge_attr = data.edge_attr[mask]
+        return Data(
+            x=data.x,
+            edge_index=new_edge_index,
+            edge_attr=new_edge_attr,
+            pos=data.pos,
+            y=data.y if hasattr(data, 'y') else None,
+            batch=batch
+        )
+
+
+
+
 
 class MaskData(torch.nn.Module):
     def __init__(self, mask_ratio: float):
@@ -162,12 +203,14 @@ class MaskData(torch.nn.Module):
 
 
 class MaskNorm(torch.nn.Module):
-    def __init__(self,mean_x, std_x , mean_edge, std_edge,mask_ratio = 0.1 ,eps = 0 ):
+    def __init__(self, mask_ratio, eps = 0,k=-1, **kwarg ):
         super().__init__()
-        self.norm = GenNormalize(mean_x, std_x , mean_edge, std_edge, eps)
+        self.norm = GenNormalize(kwarg['mean_x'], kwarg['std_x'] , kwarg['mean_edge'], kwarg['std_edge'], eps)
         self.mask = MaskData(mask_ratio=mask_ratio)
+        self.knn = GraphPruning(k = 8)
     def forward(self, data):
         out = self.norm(data)
+        out = self.knn(out)
         context,target = self.mask(out)
         return context,target
 
@@ -183,13 +226,12 @@ def create_mask_collate_fn(transform: MaskNorm = None):
         targets = []
         
         for data in batch:
-            try:
-                ctx, tgt = transform(data)
-                if ctx.num_nodes > 0 and tgt.num_nodes > 0:
-                    contexts.append(ctx)
-                    targets.append(tgt)
-            except Exception:
-                continue
+            
+            ctx, tgt = transform(data)
+            if ctx.num_nodes > 0 and tgt.num_nodes > 0:
+                contexts.append(ctx)
+                targets.append(tgt)
+
         
         if len(contexts) == 0:
             return None
