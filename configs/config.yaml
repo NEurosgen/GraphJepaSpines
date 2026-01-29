@@ -14,7 +14,8 @@ network:
     pos_dim: 3
     num_heads: 2
     dropout: 0.1
-  lambda: 0.1
+  lambd: 0.1
+  num_slices: 128
   ema: 0.996
   
 
@@ -26,9 +27,9 @@ training:
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
-  # scheduler:    # Для соотвествия с экспериментом
-  #   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
-  #   T_max: ${training.max_epochs}
+  scheduler:    # Для соотвествия с экспериментом
+    _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+    T_max: ${training.max_epochs}
 
 # Trainer configuration
 trainer:

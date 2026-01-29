@@ -93,7 +93,7 @@ def sigreg(x: torch.Tensor ,num_slices: int = 256) -> torch.Tensor:
 
     err = (ecf - exp_f).abs().square().mul(exp_f)
     N = x.size(0)
-    T = torch.trapz(err,t,dim=1)
+    T = torch.trapz(err,t,dim=1)*N
     return T
 
 
@@ -110,6 +110,8 @@ class LeJEPA(nn.Module):
         self.lambd = lambd
         self.num_slices = num_slices
         self.loss_fn = nn.MSELoss()
+    def _ema(self):
+        return
     def forward(self, context, target):
         context_enc = self.encoder(context.x, context.edge_index, context.edge_attr)
         target_enc =  self.encoder(target.x, target.edge_index, target.edge_attr)
@@ -120,7 +122,7 @@ class LeJEPA(nn.Module):
             target_pos=target.pos
         )
         loss_fn = self.loss_fn(pred,target_enc)
-        loss_reg = (sigreg(context_enc, self.num_slices) + sigreg(target_enc, self.num_slices)) / 2
+        loss_reg = (torch.mean(sigreg(context_enc, self.num_slices)) + torch.mean(sigreg(target_enc, self.num_slices))) / 2
         loss = (1 - self.lambd) * loss_fn + self.lambd * loss_reg
         
         return loss
@@ -275,7 +277,7 @@ class JepaLight(L.LightningModule):
         from hydra.utils import instantiate
         from omegaconf import OmegaConf
         
-        params = list(self.model.student_encoder.parameters()) + list(self.model.predictor.parameters())
+        params = list(self.model.parameters())
         
 
         opt_cfg = OmegaConf.to_container(self.optimizer_cfg, resolve=True)
