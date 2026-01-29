@@ -8,4 +8,5 @@
 
 Краткое описание существущих эуспериментов:
     enc_layers - Измерение зависимости val_loss от num_layers
+    alpha_layers - Измерения зависимости val_loss от alha (res con)
     
