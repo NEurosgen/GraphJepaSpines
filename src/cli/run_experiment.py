@@ -191,11 +191,11 @@ def run_experiment_grid(param_to_vary: str, values: list, seeds: list):
 if __name__ == "__main__":
 
     
-    PARAM_NAME = # enter your value
-    PARAM_VALUES = # enter values
-    SEEDS = [42,51]
+    PARAM_NAME = 'datamodule.batch_size'
+    PARAM_VALUES = [i for i in range(16, 32,4)]
+    SEEDS = [42,51,113]
     PATHS = {
     "stats": "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/",
-    "output": #enter dir for save
+    "output": '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/exp/batch_loss'
     }
     run_experiment_grid(PARAM_NAME, PARAM_VALUES, SEEDS)

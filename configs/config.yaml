@@ -27,9 +27,9 @@ training:
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
-  scheduler:    # Для соотвествия с экспериментом
-    _target_: torch.optim.lr_scheduler.CosineAnnealingLR
-    T_max: ${training.max_epochs}
+  # scheduler:    # Для соотвествия с экспериментом
+  #   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  #   T_max: ${training.max_epochs}
 
 # Trainer configuration
 trainer:
@@ -46,7 +46,7 @@ datamodule:
     _target_: src.data_utils.datamodule.GraphDataSet
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
   batch_size: 512
-  num_workers: 2
+  num_workers: 4
   knn: -1
   mask_ratio: 0.01
   seed: ${seed}
