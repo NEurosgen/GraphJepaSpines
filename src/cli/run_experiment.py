@@ -192,8 +192,8 @@ if __name__ == "__main__":
 
     
     PARAM_NAME = 'datamodule.batch_size'
-    PARAM_VALUES = [i for i in range(16, 32,4)]
-    SEEDS = [42,51,113]
+    PARAM_VALUES = [i for i in range(12, 32,8)]
+    SEEDS = [42]
     PATHS = {
     "stats": "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/",
     "output": '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/exp/batch_loss'

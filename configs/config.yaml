@@ -2,7 +2,7 @@ seed: 42
 
 # Network configuration
 network:
-  _target_: src.models.jepa.GraphJepa
+  _target_: src.models.jepa.LeJEPA
   encoder:
     _target_: src.models.encoder.GraphGcnEncoder
     in_channels: 21  # Matches dataset feature dimension
@@ -23,7 +23,7 @@ network:
 training:
   learning_rate: 1e-2
   weight_decay: 1e-5
-  max_epochs: 10
+  max_epochs: 1
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
