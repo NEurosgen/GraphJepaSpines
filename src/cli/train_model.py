@@ -16,12 +16,7 @@ def load_stats(path):
     std_edge = torch.load(path+"std_edge.pt")
     return mean_x,std_x, mean_edge,std_edge
 
-def load_stats_9009(path):
-    mean_x = torch.load(path+"means_9009.pt")
-    std_x = torch.load(path+"stds_9009.pt")
-    mean_edge = torch.load(path+"means_edge_9009.pt")
-    std_edge = torch.load(path+"stds_edge_9009.pt")
-    return mean_x, std_x, mean_edge, std_edge
+
 
 def get_datamodule(cfg):
     mean_x, std_x, mean_edge, std_edge = load_stats('/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/')
@@ -47,7 +42,7 @@ def create_repr_dataloader(repr_cfg):
     from torch.utils.data import DataLoader, ConcatDataset
     from torch_geometric.data import Batch
     
-    mean_x, std_x, mean_edge, std_edge = load_stats_9009(repr_cfg.stats_path)
+    mean_x, std_x, mean_edge, std_edge = load_stats(repr_cfg.stats_path)
     norm = GenNormalize(mean_x=mean_x, std_x=std_x, mean_edge=mean_edge, std_edge=std_edge)
     
     datasets = []
