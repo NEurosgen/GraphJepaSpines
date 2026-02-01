@@ -51,3 +51,20 @@ datamodule:
   mask_ratio: 0.01
   seed: ${seed}
   ratio: [0.7, 0.2, 0.1]
+
+
+representation:
+  enabled: true
+  batch_size: 64
+  datasets:
+    - path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_ab"
+      label: 0
+    - path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_wt"
+      label: 1
+  # Доступные эстиматоры: rank_me, isotropy, uniformity, cluster, recall, alignment
+  estimators:
+    - rank_me
+    - isotropy
+    - uniformity
+
+  stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
