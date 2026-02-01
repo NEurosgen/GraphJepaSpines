@@ -112,6 +112,8 @@ class LeJEPA(nn.Module):
         self.loss_fn = nn.MSELoss()
     def _ema(self):
         return
+    def encode(self, x, edge_index, edge_attr):
+        return self.encoder(x, edge_index, edge_attr)   
     def forward(self, context, target):
         context_enc = self.encoder(context.x, context.edge_index, context.edge_attr)
         target_enc =  self.encoder(target.x, target.edge_index, target.edge_attr)
@@ -175,7 +177,8 @@ class GraphJepa(nn.Module):
             self.teach_encoder.parameters()
         ):
             params_t.data.mul_(self.ema).add_((1 - self.ema) * params_s.data)
-    
+    def encode(self, x, edge_index, edge_attr):
+        return self.student_encoder(x, edge_index, edge_attr) 
     def forward(self, context, target):
 
         
@@ -199,7 +202,7 @@ class GraphJepa(nn.Module):
 import pytorch_lightning as L
 
 class JepaLight(L.LightningModule):
-    def __init__(self, model: GraphJepa, cfg, debug: bool = False):
+    def __init__(self, model: GraphJepa, cfg, debug: bool = False, **kwargs):
         super().__init__()
         self.save_hyperparameters(ignore=['model'])
         self.debug = debug
@@ -210,6 +213,11 @@ class JepaLight(L.LightningModule):
         self.optimizer_cfg = cfg.optimizer
         self.scheduler_cfg = cfg.get('scheduler', None)
         self.sigma = 1
+        
+        # Representation estimation config
+        self.repr_dataloader = kwargs.get('repr_dl', None)
+        self.estimator_cfg = kwargs.get('estimator_cfg', None)
+        self.repr_labels = kwargs.get('repr_labels', None)  # Метки для эстиматоров с supervised метриками
 
     def _debug_log(self, batch):
         context_x, target_x = batch
@@ -247,6 +255,48 @@ class JepaLight(L.LightningModule):
             self.log("debug_cond_number", cond_number, prog_bar=False)
             return std_loss
     
+    def encode(self, x, edge_index, edge_attr):
+        return self.model.encode(x, edge_index, edge_attr)
+    
+    @torch.no_grad()
+    def _compute_representation_metrics(self):
+        if self.repr_dataloader is None:
+            return {}
+        from torch_geometric.nn import global_mean_pool #можно заменить на add но сомнительно
+        embeddings_list = []
+        
+        for batch in self.repr_dataloader:
+            batch = batch.to(self.device)
+            edge_attr = batch.edge_attr
+            if edge_attr is not None:
+                edge_attr = torch.exp(-edge_attr**2 / self.sigma**2)
+            emb = self.encode(batch.x, batch.edge_index, edge_attr)
+            if hasattr(batch, 'batch') and batch.batch is not None:
+                graph_emb = global_mean_pool(emb, batch.batch)
+            else:
+                graph_emb = emb.mean(dim=0, keepdim=True)
+            embeddings_list.append(graph_emb)
+        if not embeddings_list:
+            return {}
+        all_embeddings = torch.cat(embeddings_list, dim=0)
+        
+        data = {'embedding': all_embeddings}
+        if self.repr_labels is not None:
+            data['labels'] = self.repr_labels
+        
+
+        from src.representation.estimators import CompositeEstimator
+        
+        if self.estimator_cfg is not None:
+            estimator_names = self.estimator_cfg.get('estimators', ['rank_me', 'isotropy', 'uniformity'])
+        else:
+            estimator_names = ['rank_me', 'isotropy', 'uniformity']
+        
+        estimator = CompositeEstimator(data, estimators=estimator_names)
+        metrics = estimator.estimate()
+        
+        return metrics
+ 
     def training_step(self, batch):
         context_batch, target_batch = batch
         context_batch.edge_attr = torch.exp(-context_batch.edge_attr**2 / self.sigma**2)
@@ -272,6 +322,17 @@ class JepaLight(L.LightningModule):
     
     def on_train_batch_end(self, outputs, batch, batch_idx):
         self.model._ema()
+    
+    def on_validation_epoch_end(self):
+        """Вычисляет и логирует метрики representation quality в конце эпохи валидации."""
+        if self.repr_dataloader is not None:
+            metrics = self._compute_representation_metrics()
+            
+            # Логируем все метрики
+            for name, value in metrics.items():
+                if isinstance(value, (int, float)):
+                    self.log(f"repr/{name}", value, prog_bar=True)
+
     
     def configure_optimizers(self):
         from hydra.utils import instantiate
