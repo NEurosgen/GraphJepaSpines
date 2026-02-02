@@ -1,5 +1,6 @@
 import torch_geometric
 import torch
+import torch.nn as nn
 from torch_geometric.nn import knn_graph
 
 
@@ -28,6 +29,35 @@ def fast_normalization_by_features(data, eps=1e-6):
 
 
 
+def create_mask_collate_fn(transform: 'GenNormalize' = None):
+    from torch_geometric.data import Batch
+    
+    def mask_collate_fn(batch):
+        if transform is None:
+            return Batch.from_data_list(batch)
+        
+        contexts = []
+        targets = []
+        
+        for data in batch:
+            
+            ctx, tgt = transform(data)
+            if ctx.num_nodes > 0 and tgt.num_nodes > 0:
+                contexts.append(ctx)
+                targets.append(tgt)
+
+        
+        if len(contexts) == 0:
+            return None
+        
+        context_batch = Batch.from_data_list(contexts)
+        target_batch = Batch.from_data_list(targets)
+        
+        return context_batch, target_batch
+    
+    return mask_collate_fn
+
+
 
         
 
@@ -39,10 +69,11 @@ class NormNoEps(torch.nn.Module):
         if torch.any(std.abs() < 1e-8):
             raise ValueError("Your std is too small. It's dangerous for division!")
         self.eps = eps
-    def forward(self,x) -> torch.Tensor:
-        mask = (x.abs() > self.eps)
-        normalized_x  = (x - (self.mean))/(self.std)
-        return torch.where(mask,normalized_x,x)
+    def forward(self,data) -> torch.Tensor:
+        mask = (data.x.abs() > self.eps)
+        normalized_x  = (data.x - (self.mean))/(self.std)
+        data.x = torch.where(mask,normalized_x,data.x)
+        return data
     
 
 class EdgeNorm(torch.nn.Module):
@@ -52,30 +83,10 @@ class EdgeNorm(torch.nn.Module):
         self.register_buffer("std", std)
         if torch.any(std.abs() < 1e-8):
             raise ValueError("Your std is too small. It's dangerous for division!")
-    def forward(self, edge_attr):
-        return (edge_attr - self.mean)/self.std
-        
-
-class GenNormalize(torch.nn.Module):
-    def __init__(self, mean_x, std_x , mean_edge, std_edge, eps = 0):
-        super().__init__()
-        self.norm_x = NormNoEps(mean_x,std_x , eps)
-        self.norm_edge = EdgeNorm(mean_edge,std_edge)
     def forward(self, data):
-        # Memory efficient: create new Data with normalized tensors instead of cloning
-        from torch_geometric.data import Data
-        new_edge_attr = None
-        if hasattr(data, 'edge_attr') and data.edge_attr is not None:
-            new_edge_attr = self.norm_edge(data.edge_attr)
+        data.edge_attr = (data.edge_attr - self.mean)/self.std
+        return data
         
-        return Data(
-            x=self.norm_x(data.x),
-            edge_index=data.edge_index,
-            edge_attr=new_edge_attr,
-            pos=data.pos if hasattr(data, 'pos') else None,
-            y=data.y if hasattr(data, 'y') else None,
-            batch = data.batch if hasattr(data, 'batch') else None,
-        )
 
 
 
@@ -84,6 +95,10 @@ from torch_geometric.data import Data
 from torch_geometric.utils import subgraph, k_hop_subgraph, to_undirected
 
 class GraphPruning(torch.nn.Module):
+    '''
+    Return pruned graph with knn
+
+    '''
     def __init__(self, k = -1, mutual = False):
         super().__init__()
         self.k = k
@@ -123,6 +138,10 @@ class GraphPruning(torch.nn.Module):
 
 
 class MaskData(torch.nn.Module):
+    '''
+    Waring! This class return TWO graphs , contex and target (In JEPA notations)
+
+    '''
     def __init__(self, mask_ratio: float):
         super().__init__()
         self.mask_ratio = mask_ratio
@@ -200,46 +219,30 @@ class MaskData(torch.nn.Module):
     def forward(self, data):
         mask = self._get_random_patch_mask(data)
         return self._split_data_by_mask(data, mask)
-
-
-class MaskNorm(torch.nn.Module):
-    def __init__(self, mask_ratio, eps = 0,k=-1, **kwarg ):
+class FeatureChoice(nn.Module):
+    '''
+    Input list of index of choiced feature for training
+    '''
+    def __init__(self, feature = None):
         super().__init__()
-        self.norm = GenNormalize(kwarg['mean_x'], kwarg['std_x'] , kwarg['mean_edge'], kwarg['std_edge'], eps)
-        self.mask = MaskData(mask_ratio=mask_ratio)
-        self.knn = GraphPruning(k = 8)
+        self.feature = feature
     def forward(self, data):
-        out = self.norm(data)
-        out = self.knn(out)
-        context,target = self.mask(out)
-        return context,target
+        if self.feature is not None:
+            data.x = data.x[:, self.feature]
+        return data
 
 
-def create_mask_collate_fn(transform: MaskNorm = None):
-    from torch_geometric.data import Batch
-    
-    def mask_collate_fn(batch):
-        if transform is None:
-            return Batch.from_data_list(batch)
-        
-        contexts = []
-        targets = []
-        
-        for data in batch:
-            
-            ctx, tgt = transform(data)
-            if ctx.num_nodes > 0 and tgt.num_nodes > 0:
-                contexts.append(ctx)
-                targets.append(tgt)
-
-        
-        if len(contexts) == 0:
-            return None
-        
-        context_batch = Batch.from_data_list(contexts)
-        target_batch = Batch.from_data_list(targets)
-        
-        return context_batch, target_batch
-    
-    return mask_collate_fn
+class GenNormalize(torch.nn.Module):
+    def __init__(self, transforms, mask_transform = None):
+        super().__init__()
+        self.transforms = transforms
+        self.mask_transform = mask_transform
+    def forward(self, data):
+        out = data
+        for transform in self.transforms:
+            out = transform(out)
+        if self.mask_transform is not None:
+            context, target = self.mask_transform(out)
+            return context, target
+        return out
 
