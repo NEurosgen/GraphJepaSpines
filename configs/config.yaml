@@ -2,10 +2,10 @@ seed: 42
 
 # Network configuration
 network:
-  _target_: src.models.jepa.LeJEPA
+  _target_: src.models.jepa.GraphJepa
   encoder:
     _target_: src.models.encoder.GraphGcnEncoder
-    in_channels: 21  # Matches dataset feature dimension
+    in_channels: 11  # Matches dataset feature dimension
     out_channels: 64
     num_layers: 6
   predictor:
@@ -45,6 +45,8 @@ datamodule:
   dataset:
     _target_: src.data_utils.datamodule.GraphDataSet
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
+    stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/'
+  features: [0,4,5,6,7,13,14,15,17,19,20]
   batch_size: 32
   num_workers: 2
   knn: -1
@@ -62,6 +64,7 @@ representation:
     - path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_wt"
       label: 1
   # Доступные эстиматоры: rank_me, isotropy, uniformity, cluster, recall, alignment
+  features: [0,4,5,6,7,13,14,15,17,19,20]
   estimators:
     - rank_me
     - isotropy

@@ -36,10 +36,7 @@ class GraphDataSet(Dataset):
         return out
 
     def get(self, idx):
-        if not self.save_cache:
-            out = self._load_to_cache(idx)
-            return out
-        if self.cache.get(idx, False):
+        if self.save_cache and idx in self.cache:
             out = self.cache[idx]
         else:
             out = self._load_to_cache(idx)

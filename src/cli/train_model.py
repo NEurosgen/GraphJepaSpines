@@ -4,38 +4,74 @@ import pytorch_lightning as L
 from hydra.utils import instantiate
 from ..models.jepa import JepaLight
 from ..data_utils.datamodule import GraphDataModule, GraphDataSet
-from ..data_utils.transforms import MaskNorm, GenNormalize, create_mask_collate_fn
+from ..data_utils.transforms import (
+    GenNormalize, 
+    create_mask_collate_fn,
+    NormNoEps,
+    EdgeNorm,
+    GraphPruning,
+    MaskData,
+    FeatureChoice
+)
 import torch
 import numpy as np
 torch.set_float32_matmul_precision('high')
 
-def load_stats(path):
-    mean_x = torch.load(path+"means.pt")
-    std_x = torch.load(path+"stds.pt")
-    mean_edge = torch.load(path+"mean_edge.pt")
-    std_edge = torch.load(path+"std_edge.pt")
-    return mean_x,std_x, mean_edge,std_edge
 
+def load_stats(path):
+    mean_x = torch.load(path + "means.pt")
+    std_x = torch.load(path + "stds.pt")
+    mean_edge = torch.load(path + "mean_edge.pt")
+    std_edge = torch.load(path + "std_edge.pt")
+    return mean_x, std_x, mean_edge, std_edge
+
+
+def build_transforms(cfg, mean_x, std_x, mean_edge, std_edge):
+    """
+    Build transforms by config
+    """
+    transforms = []
+    
+    features = cfg.get('features', None)
+    if features is not None:
+        features = list(features)
+        transforms.append(FeatureChoice(feature=features))
+        mean_x = mean_x[features]
+        std_x = std_x[features]
+    
+    transforms.append(NormNoEps(mean=mean_x, std=std_x, eps=cfg.get('eps', 1e-6)))
+    transforms.append(EdgeNorm(mean=mean_edge, std=std_edge))
+    
+    knn_k = cfg.get('knn', -1)
+    if knn_k > 0:
+        transforms.append(GraphPruning(k=knn_k, mutual=cfg.get('mutual_knn', False)))
+    
+    return transforms
 
 
 def get_datamodule(cfg):
-    mean_x, std_x, mean_edge, std_edge = load_stats('/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/')
-    mask_norm = MaskNorm(k=cfg.knn,mean_x = mean_x, std_x = std_x, mean_edge=mean_edge, std_edge=std_edge, mask_ratio=cfg.mask_ratio) # mask ratio тоже в конфиг надо вынести
-    collate_fn = create_mask_collate_fn(mask_norm)
+    mean_x, std_x, mean_edge, std_edge = load_stats(cfg.dataset.stats_path)
+    
+    transforms = build_transforms(cfg, mean_x, std_x, mean_edge, std_edge)
+    mask_transform = MaskData(mask_ratio=cfg.mask_ratio)
+    gen_normalize = GenNormalize(transforms=transforms, mask_transform=mask_transform)
+    
+    collate_fn = create_mask_collate_fn(gen_normalize)
     ds = GraphDataSet(path=cfg.dataset.path, transform=None)
 
-    datamodule = GraphDataModule(ds, cfg.batch_size,
-                                 num_workers=cfg.num_workers, 
-                                 seed=cfg.seed,
-                                 ratio=cfg.ratio,
-                                 collate_fn=collate_fn)
+    datamodule = GraphDataModule(
+        ds, 
+        cfg.batch_size,
+        num_workers=cfg.num_workers, 
+        seed=cfg.seed,
+        ratio=cfg.ratio,
+        collate_fn=collate_fn
+    )
     return datamodule
 
 
 def create_repr_dataloader(repr_cfg):
     """
-    Создаёт DataLoader для оценки качества представлений.
-    Объединяет несколько датасетов с разными метками классов.
     Returns:
         Tuple[DataLoader, np.ndarray]: DataLoader и массив меток
     """
@@ -43,7 +79,8 @@ def create_repr_dataloader(repr_cfg):
     from torch_geometric.data import Batch
     
     mean_x, std_x, mean_edge, std_edge = load_stats(repr_cfg.stats_path)
-    norm = GenNormalize(mean_x=mean_x, std_x=std_x, mean_edge=mean_edge, std_edge=std_edge)
+    transforms = build_transforms(repr_cfg , mean_x, std_x, mean_edge, std_edge )
+    norm = GenNormalize(transforms=transforms, mask_transform=None)
     
     datasets = []
     labels = []
