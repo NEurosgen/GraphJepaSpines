@@ -2,7 +2,7 @@ seed: 42
 
 # Network configuration
 network:
-  _target_: src.models.jepa.GraphJepa
+  _target_: src.models.jepa.LeJEPA
   encoder:
     _target_: src.models.encoder.GraphGcnEncoder
     in_channels: 21  # Matches dataset feature dimension
@@ -23,7 +23,7 @@ network:
 training:
   learning_rate: 1e-2
   weight_decay: 1e-5
-  max_epochs: 10
+  max_epochs: 100
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
@@ -45,7 +45,7 @@ datamodule:
   dataset:
     _target_: src.data_utils.datamodule.GraphDataSet
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
-  batch_size: 512
+  batch_size: 32
   num_workers: 2
   knn: -1
   mask_ratio: 0.01
@@ -55,7 +55,7 @@ datamodule:
 
 representation:
   enabled: true
-  batch_size: 64
+  batch_size: 32
   datasets:
     - path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_ab"
       label: 0
