@@ -23,7 +23,7 @@ network:
 training:
   learning_rate: 1e-2
   weight_decay: 1e-5
-  max_epochs: 10
+  max_epochs: 100
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
@@ -45,7 +45,8 @@ datamodule:
   dataset:
     _target_: src.data_utils.datamodule.GraphDataSet
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
-  batch_size: 512
+    stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/'
+  batch_size: 32
   num_workers: 2
   knn: -1
   mask_ratio: 0.01
@@ -55,13 +56,14 @@ datamodule:
 
 representation:
   enabled: true
-  batch_size: 64
+  batch_size: 32
   datasets:
     - path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_ab"
       label: 0
     - path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_wt"
       label: 1
   # Доступные эстиматоры: rank_me, isotropy, uniformity, cluster, recall, alignment
+ 
   estimators:
     - rank_me
     - isotropy
