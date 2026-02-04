@@ -23,7 +23,7 @@ network:
 training:
   learning_rate: 1e-2
   weight_decay: 1e-5
-  max_epochs: 100
+  max_epochs: 10
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}

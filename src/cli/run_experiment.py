@@ -356,17 +356,17 @@ def run_experiment_grid(
 
 if __name__ == "__main__":
     
-    PARAM_NAME = "network.encoder.num_layers"  # TODO: enter your value, e.g. "network.encoder.out_channels"
-    PARAM_VALUES =  [1, 2 ,3 ]  # TODO: enter values, e.g. [32, 64, 128]
-    SEEDS = [42, 51]
+    PARAM_NAME = "datamodule.mask_ratio"  # TODO: enter your value, e.g. "network.encoder.out_channels"
+    PARAM_VALUES =  [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]  # TODO: enter values, e.g. [32, 64, 128]
+    SEEDS = [42, 51,112]
     
     # Метрики для отслеживания: val_loss по умолчанию  
     # Можно добавить: 'rank_me', 'isotropy', 'uniformity', 'silhouette' и др.
-    METRICS_TO_TRACK = ['val_loss']
+    METRICS_TO_TRACK = ['val_loss', 'rank_me', 'isotropy', 'uniformity']
     
     PATHS = {
         "stats": "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/",
-        "output": "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/exp/results/"  # TODO: enter dir for save, e.g. "./exp_results/"
+        "output": "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/exp/repr_mask"  # TODO: enter dir for save, e.g. "./exp_results/"
     }
     
     # Проверка, что все параметры заданы
