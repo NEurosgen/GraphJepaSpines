@@ -24,7 +24,7 @@ except ImportError:
 from omegaconf import DictConfig, ListConfig
 torch.serialization.add_safe_globals([DictConfig, ListConfig])
 
-from src.data_utils.transforms import GenNormalize
+from src.data_utils.transforms import GenNormalize, FeatureChoice, NormNoEps, EdgeNorm
 from src.data_utils.datamodule import GraphDataModule, GraphDataSet
 # from src.models.jepa import JepaLight # Не используется напрямую в этом скрипте
 
@@ -38,16 +38,33 @@ def load_stats(path: str):
     return mean_x, std_x, mean_edge, std_edge
 
 
-def get_datamodule(path: str, stats_path: str, batch_size: int = 1):
-    """Создаёт DataModule для датасета графов."""
+def get_datamodule(path: str, stats_path: str, batch_size: int = 1, features: list = None):
+    """Создаёт DataModule для датасета графов.
+    
+    Args:
+        path: Путь к датасету
+        stats_path: Путь к статистикам нормализации
+        batch_size: Размер батча
+        features: Список индексов фич для выбора (если None - используются все)
+    """
     mean_x, std_x, mean_edge, std_edge = load_stats(stats_path)
     
-    norm = GenNormalize(
-        mean_x=mean_x, 
-        std_x=std_x, 
-        mean_edge=mean_edge, 
-        std_edge=std_edge
-    )
+    # Создаём pipeline трансформаций
+    transforms = []
+    
+    if features is not None:
+        # Сначала выбираем нужные фичи
+        transforms.append(FeatureChoice(features))
+        # Нормализуем только выбранные фичи (срезаем статистики)
+        mean_x = mean_x[features]
+        std_x = std_x[features]
+    
+    # Добавляем нормализацию
+    transforms.append(NormNoEps(mean_x, std_x))
+    transforms.append(EdgeNorm(mean_edge, std_edge))
+    
+    # Собираем в GenNormalize (без mask_transform для inference)
+    norm = GenNormalize(transforms=transforms, mask_transform=None)
     
     ds = GraphDataSet(path=path, transform=norm)
     
@@ -221,10 +238,14 @@ def main():
     stats_path = '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/'
     path_ab = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_ab"
     path_wt = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_wt"
-    checkpoint_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_131/checkpoints/epoch=99-step=222100.ckpt"
+    checkpoint_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_142/checkpoints/epoch=62-step=139923.ckpt"
+    
+    # Фичи для моделей обученных с FeatureChoice (из main ветки)
+    # Если модель обучена со всеми фичами - установить features = None
+    features = [0, 4, 5, 6, 7, 13, 14, 15, 17, 19, 20]
     
     # Папка для сохранения результатов визуализации
-    tag = "le_jepa_"
+    tag = "jepa_feature_"
 
     output_base_path = '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/exp/'
     visualization_dir = os.path.join(output_base_path, "visualizations")
@@ -296,8 +317,8 @@ def main():
     
     # Создаём DataModules для обоих классов
     print("\n📂 Создание DataModules...")
-    dm_ab = get_datamodule(path_ab, stats_path, batch_size=32)
-    dm_wt = get_datamodule(path_wt, stats_path, batch_size=32)
+    dm_ab = get_datamodule(path_ab, stats_path, batch_size=32, features=features)
+    dm_wt = get_datamodule(path_wt, stats_path, batch_size=32, features=features)
     
     # Извлекаем эмбеддинги
     print("\n🔄 Извлечение эмбеддингов...")
