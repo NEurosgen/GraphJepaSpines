@@ -1,55 +1,55 @@
 # GraphJEPA Spines: SSL for Dendritic Spine Representation
 
-Данный репозиторий содержит реализацию методов Self-Supervised Learning (SSL) для обучения информативного латентного пространства на основе геометрических данных дендритных шипиков.
+This repository contains an implementation of Self-Supervised Learning (SSL) methods designed to learn informative latent spaces based on the geometric data of dendritic spines.
 
-## Обзор проекта
+## Project Overview
 
-Целью проекта является создание устойчивых векторных представлений дендритных шипиков без использования размеченных данных. В качестве базового архитектурного подхода выбрана **JEPA (Joint Embedding Predictive Architecture)**, что позволяет избежать вычислительно затратного этапа декодирования, характерного для автоэнкодеров, и сосредоточиться на семантике скрытого пространства.
+The goal of this project is to generate robust vector embeddings of dendritic spines without relying on labeled data. **JEPA (Joint Embedding Predictive Architecture)** was selected as the core architecture to avoid the computationally expensive decoding step typical of autoencoders and to focus on the semantics of the latent space.
 
-## Данные и Препроцессинг
+## Data and Preprocessing
 
-> **Примечание:** Пайплайн конвертации исходных мешей (mesh) в графовый формат (`.pt`) не входит в состав данного репозитория. Здесь используется уже предобработанный датасет.
+> **Note:** The pipeline for converting raw meshes into graph format (`.pt`) is not included in this repository. This project utilizes a pre-processed dataset.
 
-### Источник данных
+### Data Source
 
-* **Датасет:** Minnie65_public.
-* **Сегментация:** Выполнена с использованием фреймворка [NEURD](https://www.google.com/search?q=https://github.com/cajal/NEURD).
-* **Объект:** Ветви дендритов с предварительно сегментированными шипиками.
+* **Dataset:** Minnie65_public.
+* **Segmentation:** Performed using the [NEURD](https://www.google.com/search?q=https://github.com/cajal/NEURD) framework.
+* **Object of Study:** Dendritic branches with pre-segmented spines.
 
-### Графовое представление
+### Graph Representation
 
-Входные данные представляют собой полносвязный граф , где:
+The input data consists of a fully connected graph , where:
 
-* **Узлы ():** Каждый узел соответствует отдельному шипику и содержит вектор его геометрических признаков.
-* **Ребра ():** Ребра кодируют пространственные отношения между шипиками. Атрибуты ребер содержат информацию о евклидовом расстоянии между соответствующими узлами.
-![Пример преобразования меша в граф](docs/images/Screenshot%20from%202026-02-07%2011-50-08.png)
-## 🏗 Архитектура и Методология
+* **Nodes ():** Each node corresponds to an individual spine and contains a vector of its geometric features.
+* **Edges ():** Edges encode spatial relationships between spines. Edge attributes contain the Euclidean distance between corresponding nodes.
 
-В проекте исследуется применимость архитектур семейства JEPA для графовых модальностей. Основной мотивацией отказа от реконструктивных методов (MAE, VGAE) в пользу предиктивных (JEPA) является устранение необходимости в декодере, что критично при ограниченном объеме обучающих данных и высокой размерности признаков.
+## Architecture and Methodology
 
-*В настоящее время также рассматривается возможность сравнительного анализа с архитектурами VGAE.*
+This project explores the applicability of JEPA-family architectures to graph modalities. The primary motivation for choosing predictive methods (JEPA) over reconstructive methods (MAE, VGAE) is to eliminate the need for a decoder, which is critical given the limited training data and high dimensionality of features.
 
-### Реализованные подходы
+*Currently, a comparative analysis with VGAE architectures is also under consideration.*
 
-В коде представлены две вариации архитектуры:
+### Implemented Approaches
+
+The codebase includes two architectural variations:
 
 #### 1. Graph JEPA (Baseline)
 
-Прямая адаптация принципов JEPA для графов.
+A direct adaptation of JEPA principles for graphs.
 
-* **Механизм:** Использует архитектуру «Учитель-Студент» (Teacher-Student). Входной граф маскируется (случайная выборка подграфа). Задача предиктора - восстановить латентное представление замаскированной целевой области, опираясь на контекст графа и позиционное кодирование центра маски.
-* **Ограничения:** В ходе экспериментов выявлена склонность данной реализации к **коллапсу представлений** , когда модель сходится к тривиальным константным решениям.
+* **Mechanism:** Utilizes a Teacher-Student architecture. The input graph is masked (random subgraph sampling). The predictor's task is to reconstruct the latent representation of the masked target region based on the graph context and the positional encoding of the mask center.
+* **Limitations:** Experiments revealed a tendency toward **representation collapse**, where the model converges to trivial constant solutions.
 
 #### 2. LeJEPA (Logic-enhanced JEPA)
 
-Усовершенствованная версия, базирующаяся на методах стабилизации обучения.
+An enhanced version based on training stabilization methods.
 
-* **Особенности:** Реализация включает механизмы, предложенные в статье LeJEPA https://arxiv.org/abs/2511.08544.
-* **Результат:** Данный подход демонстрирует значительно более высокую стабильность обучения и устойчивость к коллапсу латентного пространства.
+* **Features:** Implements mechanisms proposed in the [LeJEPA paper](https://arxiv.org/abs/2511.08544).
+* **Result:** This approach demonstrates significantly higher training stability and resistance to latent space collapse.
 
-## Запуск и Использование
+## Usage
 
-Для запуска обучения модели используйте следующую команду:
+To start training the model, use the following command:
 
 ```bash
 python -m src.cli.train_model
@@ -57,5 +57,8 @@ python -m src.cli.train_model
 ```
 
 ---
-### Правила ведения веток
-В ветке main хранятся готовый для обучения по конфигу версии кода. Ветка exp являестя главной веткой для отслеживания экспериментов , в ней хранится код полезный при проведении экспериментов.А также в ее README записаны все существующие эксперименты на данные момент
+
+### Branching Policy
+
+* **`main`**: Contains stable code versions ready for configuration-based training.
+* **`exp`**: The primary branch for tracking experiments. It contains code utilities specific to experimentation. Additionally, the `README` in this branch logs all currently existing experiments.
