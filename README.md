@@ -22,7 +22,7 @@ The input data consists of a fully connected graph , where:
 
 * **Nodes ():** Each node corresponds to an individual spine and contains a vector of its geometric features.
 * **Edges ():** Edges encode spatial relationships between spines. Edge attributes contain the Euclidean distance between corresponding nodes.
-
+![Example](docs/images/Screenshot%20from%202026-02-07%2011-50-08.png)
 ## Architecture and Methodology
 
 This project explores the applicability of JEPA-family architectures to graph modalities. The primary motivation for choosing predictive methods (JEPA) over reconstructive methods (MAE, VGAE) is to eliminate the need for a decoder, which is critical given the limited training data and high dimensionality of features.
