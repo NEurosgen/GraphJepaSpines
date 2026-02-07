@@ -13,7 +13,7 @@ The goal of this project is to generate robust vector embeddings of dendritic sp
 ### Data Source
 
 * **Dataset:** Minnie65_public.
-* **Segmentation:** Performed using the [NEURD](https://www.google.com/search?q=https://github.com/cajal/NEURD) framework.
+* **Segmentation:** Performed using the [NEURD](https://github.com/reimerlab/NEURD) framework.
 * **Object of Study:** Dendritic branches with pre-segmented spines.
 
 ### Graph Representation
