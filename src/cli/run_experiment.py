@@ -357,7 +357,7 @@ def run_experiment_grid(
 if __name__ == "__main__":
     
     PARAM_NAME = "datamodule.knn"  # TODO: enter your value, e.g. "network.encoder.out_channels"
-    PARAM_VALUES =  [3,2,1 ]  # TODO: enter values, e.g. [32, 64, 128]
+    PARAM_VALUES =  [0 ]  # TODO: enter values, e.g. [32, 64, 128]
     SEEDS = [42, 51,112]
     
     # Метрики для отслеживания: val_loss по умолчанию  
