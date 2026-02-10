@@ -356,9 +356,9 @@ def run_experiment_grid(
 
 if __name__ == "__main__":
     
-    PARAM_NAME = "network.encoder.num_layers"  # TODO: enter your value, e.g. "network.encoder.out_channels"
-    PARAM_VALUES =  [1, 2 ,3 ]  # TODO: enter values, e.g. [32, 64, 128]
-    SEEDS = [42, 51]
+    PARAM_NAME = "datamodule.knn"  # TODO: enter your value, e.g. "network.encoder.out_channels"
+    PARAM_VALUES =  [8,7,6,5,4,3,2,1 ]  # TODO: enter values, e.g. [32, 64, 128]
+    SEEDS = [42, 51,112]
     
     # Метрики для отслеживания: val_loss по умолчанию  
     # Можно добавить: 'rank_me', 'isotropy', 'uniformity', 'silhouette' и др.
@@ -366,7 +366,7 @@ if __name__ == "__main__":
     
     PATHS = {
         "stats": "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/",
-        "output": "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/exp/results/"  # TODO: enter dir for save, e.g. "./exp_results/"
+        "output": "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/exp/knn_loss/"  # TODO: enter dir for save, e.g. "./exp_results/"
     }
     
     # Проверка, что все параметры заданы
