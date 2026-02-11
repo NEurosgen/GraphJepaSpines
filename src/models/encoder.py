@@ -110,6 +110,7 @@ class GraphGCNResNorm(nn.Module):
     
     def forward(self, x, edge_index, edge_weight=None):
         out = self.model(x, edge_index, edge_weight)
+        out = out + x
         out = self.norm(out)
         return out
 
