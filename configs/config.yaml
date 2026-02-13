@@ -4,7 +4,7 @@ seed: 42
 network:
   _target_: src.models.jepa.LeJEPA
   encoder:
-    _target_: src.models.encoder.GraphGcnEncoder
+    _target_: src.models.encoder.GraphGinEncoder
     in_channels: 21  # Matches dataset feature dimension
     out_channels: 64
     num_layers: 6
