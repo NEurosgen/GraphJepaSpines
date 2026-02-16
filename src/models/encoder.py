@@ -110,6 +110,7 @@ class GraphGCNResNorm(nn.Module):
     
     def forward(self, x, edge_index, edge_weight=None):
         out = self.model(x, edge_index, edge_weight)
+        out = out + x
         out = self.norm(out)
         return out
 
@@ -125,6 +126,73 @@ class GraphGcnEncoder(nn.Module):
         self.proj.requires_grad_(False)
         self.layers = nn.ModuleList([
             GraphGCNResNorm(in_channels=out_channels)
+            for _ in range(num_layers)
+        ])
+        self.act = nn.ReLU()
+    
+    def forward(self, x, edge_index, edge_weight=None):
+        x = self.proj(x)
+        for layer in self.layers[:-1]:
+            x = layer(x, edge_index, edge_weight)
+            x = self.act(x)
+        x = self.layers[-1](x, edge_index, edge_weight)
+        return x
+    
+import torch
+import torch.nn as nn
+from torch_geometric.nn import GINConv  # Импортируем GINConv
+# Импортируем необходимые компоненты для MLP
+from torch.nn import Sequential, Linear, ReLU 
+
+# --- Вспомогательный код из вашего примера (оставлен без изменений) ---
+# (Функция compute_v_kp_for_pyg и классы BatchRmsNorm, GraphNormv2)
+
+class BatchRmsNorm(nn.Module):
+    def __init__(self, in_channels, eps=1e-6):
+        super().__init__()
+        self.eps = eps
+        self.gamma = nn.Parameter(torch.ones(in_channels))
+        self.beta = nn.Parameter(torch.zeros(in_channels))
+    
+    def forward(self, x, *args, **kwargs):
+        mean_sq = x.pow(2).mean(dim=0, keepdim=True)
+        rms = torch.sqrt(mean_sq + self.eps)
+        x_norm = x / rms
+        return self.gamma * x_norm + self.beta
+
+
+
+class GraphGINResNorm(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        self.in_channels = in_channels
+    
+        mlp = Sequential(
+            Linear(in_channels, in_channels),
+            ReLU(),
+            Linear(in_channels, in_channels)
+        )
+
+        self.model = GINConv(nn=mlp, train_eps=True)
+
+        self.norm = BatchRmsNorm(in_channels=in_channels)
+    
+    def forward(self, x, edge_index, edge_weight=None):
+        out = self.model(x, edge_index)
+        out = out + x
+        out = self.norm(out)
+        return out
+
+
+class GraphGinEncoder(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, num_layers: int = 1):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.proj = nn.Linear(in_features=in_channels, out_features=out_channels, bias=False)
+        self.proj.requires_grad_(False)
+        self.layers = nn.ModuleList([
+            GraphGINResNorm(in_channels=out_channels)
             for _ in range(num_layers)
         ])
         self.act = nn.ReLU()

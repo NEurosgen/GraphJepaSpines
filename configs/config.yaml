@@ -1,11 +1,11 @@
-seed: 42
+seed: 52
 
 # Network configuration
 network:
-  _target_: src.models.jepa.GraphJepa
+  _target_: src.models.jepa.LeJEPA
   encoder:
-    _target_: src.models.encoder.GraphGcnEncoder
-    in_channels: 11  # Matches dataset feature dimension
+    _target_: src.models.encoder.GraphGinEncoder
+    in_channels: 21  # Matches dataset feature dimension
     out_channels: 64
     num_layers: 6
   predictor:
@@ -46,11 +46,12 @@ datamodule:
     _target_: src.data_utils.datamodule.GraphDataSet
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
     stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/'
-  features: [0,4,5,6,7,13,14,15,17,19,20]
+    class_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv'
+  #features: [0,4,5,6,7,13,14,15,17,19,20]
   batch_size: 32
   num_workers: 2
-  knn: -1
-  mask_ratio: 0.01
+  knn: 4
+  mask_ratio: 0.1
   seed: ${seed}
   ratio: [0.7, 0.2, 0.1]
 
@@ -64,10 +65,18 @@ representation:
     - path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_wt"
       label: 1
   # Доступные эстиматоры: rank_me, isotropy, uniformity, cluster, recall, alignment
-  features: [0,4,5,6,7,13,14,15,17,19,20]
+  #features: [0,4,5,6,7,13,14,15,17,19,20]
   estimators:
     - rank_me
     - isotropy
     - uniformity
 
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
+
+# Classifier training (linear probe on frozen JEPA encoder)
+classifier:
+  checkpoint_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_189/checkpoints/epoch=24-step=55525.ckpt"
+  num_classes: 2
+  learning_rate: 1e-3
+  max_epochs: 1
+  sigma: 1.0
