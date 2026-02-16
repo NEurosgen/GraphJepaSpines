@@ -10,28 +10,29 @@ import random
 import os
 import re
 import pandas as pd
+from pathlib import Path
 
 MAP = {
  '23P': 0,
- '4P': 1,
- '5P-IT': 2,
- '5P-NP': 3,
- '5P-PT': 4,
- '6P-CT': 5,
- '6P-IT': 6,
- 'BC': 7,
- 'BPC': 8,
- 'MC': 9,
- 'NGC': 10,
+ '4P': 0,
+ '5P-IT': 0,
+ '5P-NP': 0,
+ '5P-PT': 0,
+ '6P-CT': 0,
+ '6P-IT': 0,
+ 'BC': 1,
+ 'BPC': 1,
+ 'MC': 1,
+ 'NGC': 1,
 }
 
 def get_class(df , file_path) -> int:
-    neuron_id = re.findall(r'\d+', file_path.stem)[0]
+    neuron_id = int(re.findall(r'\d+', file_path.stem)[0])
     result = df.loc[df['segment_id']==neuron_id,'cell_type']
     if not result.empty:
-        cell_type_value = MAP.get(result.values[0],11)
+        cell_type_value = MAP.get(result.values[0], 1)  
     else:
-        cell_type_value = 11
+        cell_type_value = 1
     return cell_type_value
 
 
@@ -52,10 +53,13 @@ class GraphDataSet(Dataset):
         return len(self.file_names)
     
     def _load_to_cache(self, idx):
-        file_path = os.path.join(self.path, self.file_names[idx])
+        file_path = Path(os.path.join(self.path, self.file_names[idx]))
         out = torch.load(file_path, weights_only=False)
-        cell_type_value = get_class(self.df,file_path)
-        out.y = cell_type_value
+        seg_id = int(re.findall(r'\d+', file_path.stem)[0])
+        out.segment_id = torch.tensor(seg_id, dtype=torch.long)
+        if self.df is not None:
+            cell_type_value = get_class(self.df, file_path)
+            out.y = cell_type_value
         self.cache[idx] = out
         return out
 

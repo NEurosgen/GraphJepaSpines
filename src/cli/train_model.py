@@ -57,7 +57,7 @@ def get_datamodule(cfg):
     gen_normalize = GenNormalize(transforms=transforms, mask_transform=mask_transform)
     
     collate_fn = create_mask_collate_fn(gen_normalize)
-    ds = GraphDataSet(path=cfg.dataset.path, transform=None)
+    ds = GraphDataSet(path=cfg.dataset.path, transform=None,class_path=cfg.dataset.class_path)
 
     datamodule = GraphDataModule(
         ds, 
