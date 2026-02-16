@@ -8,15 +8,36 @@ from torch_geometric.data import Dataset
 import torch
 import random
 import os
+import re
+import pandas as pd
 
+MAP = {
+ '23P': 0,
+ '4P': 1,
+ '5P-IT': 2,
+ '5P-NP': 3,
+ '5P-PT': 4,
+ '6P-CT': 5,
+ '6P-IT': 6,
+ 'BC': 7,
+ 'BPC': 8,
+ 'MC': 9,
+ 'NGC': 10,
+}
 
-
-
+def get_class(df , file_path) -> int:
+    neuron_id = re.findall(r'\d+', file_path.stem)[0]
+    result = df.loc[df['segment_id']==neuron_id,'cell_type']
+    if not result.empty:
+        cell_type_value = MAP.get(result.values[0],11)
+    else:
+        cell_type_value = 11
+    return cell_type_value
 
 
 
 class GraphDataSet(Dataset):
-    def __init__(self, path, transform=None, save_cache=False):
+    def __init__(self, path, transform=None, save_cache=False, class_path = None):
         super().__init__(None, None) 
         self.my_transform = transform
         self.path = path
@@ -24,6 +45,7 @@ class GraphDataSet(Dataset):
 
         self.cache = dict()
         self.save_cache = save_cache
+        self.df = pd.read_csv(class_path) if class_path is not None else None
 
     
     def len(self):
@@ -32,6 +54,8 @@ class GraphDataSet(Dataset):
     def _load_to_cache(self, idx):
         file_path = os.path.join(self.path, self.file_names[idx])
         out = torch.load(file_path, weights_only=False)
+        cell_type_value = get_class(self.df,file_path)
+        out.y = cell_type_value
         self.cache[idx] = out
         return out
 
