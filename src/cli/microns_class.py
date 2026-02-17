@@ -69,7 +69,7 @@ class ClassifierLightModule(L.LightningModule):
         self.classifier = classifier
         self.sigma = sigma
         self.learning_rate = learning_rate
-        self.loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([0.15, 1]),ignore_index=2, label_smoothing=0.05)
+        self.loss_fn = nn.CrossEntropyLoss( label_smoothing=0.05)
 
         self.class_names = class_names
 
@@ -233,13 +233,13 @@ def _load_encoder_from_checkpoint(ckpt_path: str, cfg: DictConfig) -> nn.Module:
             encoder_sd[k[len(encoder_prefix):]] = v
 
     if not encoder_sd:
-        encoder_prefix = "model.encoder."
+        encoder_prefix = "model.student_encoder."
         for k, v in state_dict.items():
             if k.startswith(encoder_prefix):
                 encoder_sd[k[len(encoder_prefix):]] = v
 
     if encoder_sd:
-        network.encoder.load_state_dict(encoder_sd, strict=False)
+        network.student_encoder.load_state_dict(encoder_sd, strict=False)
         print(f"Loaded encoder from checkpoint: {ckpt_path}")
     else:
         print(f"WARNING: Could not find encoder weights in checkpoint, using randomly initialized encoder!")

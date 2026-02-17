@@ -2,7 +2,7 @@ seed: 52
 
 # Network configuration
 network:
-  _target_: src.models.jepa.LeJEPA
+  _target_: src.models.jepa.GraphJepa
   encoder:
     _target_: src.models.encoder.GraphGinEncoder
     in_channels: 21  # Matches dataset feature dimension
@@ -75,8 +75,8 @@ representation:
 
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
-  checkpoint_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_189/checkpoints/epoch=24-step=55525.ckpt"
-  num_classes: 2
-  learning_rate: 1e-3
+  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_212/checkpoints/epoch=86-step=193227.ckpt'
+  num_classes: 12
+  learning_rate: 1e-2
   max_epochs: 1
   sigma: 1.0

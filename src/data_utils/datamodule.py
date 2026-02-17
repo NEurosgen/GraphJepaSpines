@@ -14,25 +14,25 @@ from pathlib import Path
 
 MAP = {
  '23P': 0,
- '4P': 0,
- '5P-IT': 0,
- '5P-NP': 0,
- '5P-PT': 0,
- '6P-CT': 0,
- '6P-IT': 0,
- 'BC': 1,
- 'BPC': 1,
- 'MC': 1,
- 'NGC': 1,
+ '4P': 1,
+ '5P-IT': 2,
+ '5P-NP': 3,
+ '5P-PT': 4,
+ '6P-CT': 5,
+ '6P-IT': 6,
+ 'BC': 7,
+ 'BPC': 8,
+ 'MC': 9,
+ 'NGC': 10,
 }
 
 def get_class(df , file_path) -> int:
     neuron_id = int(re.findall(r'\d+', file_path.stem)[0])
     result = df.loc[df['segment_id']==neuron_id,'cell_type']
     if not result.empty:
-        cell_type_value = MAP.get(result.values[0], 1)  
+        cell_type_value = MAP.get(result.values[0], 11)  
     else:
-        cell_type_value = 1
+        cell_type_value = 11
     return cell_type_value
 
 
