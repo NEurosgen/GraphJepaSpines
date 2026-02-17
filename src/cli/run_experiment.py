@@ -24,8 +24,14 @@ except ImportError:
 from omegaconf import DictConfig, ListConfig
 torch.serialization.add_safe_globals([DictConfig, ListConfig])
 
-from src.data_utils.transforms import GenNormalize, FeatureChoice, NormNoEps, EdgeNorm
+from src.data_utils.transforms import GenNormalize, NormNoEps, EdgeNorm
 from src.data_utils.datamodule import GraphDataModule, GraphDataSet
+
+# Обратный маппинг числовых меток в читаемые имена классов
+CLASS_NAMES = {
+    0: 'Pyramidal',
+    1: 'Interneuron',
+}
 # from src.models.jepa import JepaLight # Не используется напрямую в этом скрипте
 
 
@@ -38,35 +44,27 @@ def load_stats(path: str):
     return mean_x, std_x, mean_edge, std_edge
 
 
-def get_datamodule(path: str, stats_path: str, batch_size: int = 1, features: list = None):
+def get_datamodule(path: str, stats_path: str, batch_size: int = 1, class_path: str = None):
     """Создаёт DataModule для датасета графов.
     
     Args:
         path: Путь к датасету
         stats_path: Путь к статистикам нормализации
         batch_size: Размер батча
-        features: Список индексов фич для выбора (если None - используются все)
+        class_path: Путь к CSV с классами нейронов
     """
     mean_x, std_x, mean_edge, std_edge = load_stats(stats_path)
     
-    # Создаём pipeline трансформаций
-    transforms = []
-    
-    if features is not None:
-        # Сначала выбираем нужные фичи
-        transforms.append(FeatureChoice(features))
-        # Нормализуем только выбранные фичи (срезаем статистики)
-        mean_x = mean_x[features]
-        std_x = std_x[features]
-    
-    # Добавляем нормализацию
-    transforms.append(NormNoEps(mean_x, std_x))
-    transforms.append(EdgeNorm(mean_edge, std_edge))
+    # Создаём pipeline трансформаций (все фичи, без FeatureChoice)
+    transforms = [
+        NormNoEps(mean_x, std_x),
+        EdgeNorm(mean_edge, std_edge),
+    ]
     
     # Собираем в GenNormalize (без mask_transform для inference)
     norm = GenNormalize(transforms=transforms, mask_transform=None)
     
-    ds = GraphDataSet(path=path, transform=norm)
+    ds = GraphDataSet(path=path, transform=norm, class_path=class_path)
     
     # Collate function для PyG Data объектов
     from torch_geometric.data import Batch
@@ -85,22 +83,24 @@ def get_datamodule(path: str, stats_path: str, batch_size: int = 1, features: li
 
 
 def extract_embeddings(encoder, datamodule: GraphDataModule, 
-                       label: int, sigma: float = 1.0, device: str = 'cuda'):
+                       sigma: float = 1.0, device: str = 'cuda'):
     """
     Извлекает эмбеддинги из датасета используя обученный энкодер.
+    Метки классов берутся из data.y каждого графа.
     """
     encoder = encoder.to(device)
     encoder.eval()
     
     embeddings_list = []
     labels_list = []
+    cell_types_list = []
     filenames_list = []
     
     datamodule.setup("fit")
     dataloader = datamodule.train_dataloader()
     
     with torch.no_grad():
-        for batch in tqdm(dataloader, desc=f"Extracting embeddings (class {label})"):
+        for batch in tqdm(dataloader, desc="Extracting embeddings"):
             # Batch может быть tuple (context, target) или один граф
             if isinstance(batch, tuple):
                 context_batch, _ = batch
@@ -126,17 +126,46 @@ def extract_embeddings(encoder, datamodule: GraphDataModule,
                 # Несколько графов в батче
                 from torch_geometric.nn import global_mean_pool
                 graph_emb = global_mean_pool(emb, context_batch.batch)
+                
+                # Собираем метки классов из data.y для каждого графа в батче
+                if hasattr(context_batch, 'y') and context_batch.y is not None:
+                    batch_labels = context_batch.y
+                    if isinstance(batch_labels, torch.Tensor):
+                        labels_list.extend(batch_labels.cpu().tolist())
+                    elif isinstance(batch_labels, list):
+                        labels_list.extend(batch_labels)
+                    else:
+                        labels_list.extend([batch_labels] * graph_emb.size(0))
+                else:
+                    labels_list.extend([-1] * graph_emb.size(0))
+                
+                # Собираем строковые типы клеток
+                if hasattr(context_batch, 'cell_type') and context_batch.cell_type is not None:
+                    ct = context_batch.cell_type
+                    if isinstance(ct, list):
+                        cell_types_list.extend(ct)
+                    else:
+                        cell_types_list.extend([ct] * graph_emb.size(0))
+                else:
+                    cell_types_list.extend(['Unknown'] * graph_emb.size(0))
             else:
                 # Один граф
                 graph_emb = emb.mean(dim=0, keepdim=True)
+                if hasattr(context_batch, 'y') and context_batch.y is not None:
+                    y_val = context_batch.y
+                    labels_list.append(y_val if isinstance(y_val, int) else y_val.item())
+                else:
+                    labels_list.append(-1)
+                
+                if hasattr(context_batch, 'cell_type') and context_batch.cell_type is not None:
+                    cell_types_list.append(context_batch.cell_type)
+                else:
+                    cell_types_list.append('Unknown')
             
             embeddings_list.append(graph_emb.cpu())
             
-            # Добавляем метки
-            batch_size = graph_emb.size(0)
-            labels_list.extend([label] * batch_size)
-            
             # Добавляем имена файлов если есть
+            batch_size = graph_emb.size(0)
             if hasattr(context_batch, 'file_name'):
                 if isinstance(context_batch.file_name, list):
                     filenames_list.extend(context_batch.file_name)
@@ -147,28 +176,36 @@ def extract_embeddings(encoder, datamodule: GraphDataModule,
     
     embeddings = torch.cat(embeddings_list, dim=0)
     labels = np.array(labels_list)
+    cell_types = np.array(cell_types_list)
     
-    return embeddings, labels, filenames_list
+    return embeddings, labels, cell_types, filenames_list
 
 
 # --- НОВЫЙ БЛОК ВИЗУАЛИЗАЦИИ ---
 
-def plot_scatter(X_2d, labels, title, save_path):
+def plot_scatter(X_2d, labels, title, save_path, class_names=None):
     """
     Вспомогательная функция для отрисовки 2D графика рассеяния.
+    Поддерживает произвольное число классов с динамической легендой.
+    
+    Args:
+        class_names: словарь {label_int: name_str}, по умолчанию CLASS_NAMES
     """
+    if class_names is None:
+        class_names = CLASS_NAMES
+    
     plt.figure(figsize=(11, 9))
     sns.set_theme(style="whitegrid")
     
-    # Преобразуем числовые метки обратно в текстовые для легенды
-    label_names = ['AB (class 0)' if l == 0 else 'WT (class 1)' for l in labels]
+    # Преобразуем числовые метки в читаемые имена
+    unique_labels = sorted(np.unique(labels))
+    label_names = [class_names.get(int(l), f'Class {l}') for l in labels]
     
     scatter = sns.scatterplot(
         x=X_2d[:, 0], 
         y=X_2d[:, 1],
         hue=label_names,
-        palette=sns.color_palette("deep", len(np.unique(labels))),
-        style=label_names,
+        palette=sns.color_palette("deep", len(unique_labels)),
         s=60,
         alpha=0.8,
         edgecolor='w'
@@ -177,7 +214,7 @@ def plot_scatter(X_2d, labels, title, save_path):
     plt.title(title, fontsize=16, fontweight='bold', pad=20)
     plt.xlabel("Dimension 1", fontsize=12)
     plt.ylabel("Dimension 2", fontsize=12)
-    plt.legend(title="Classes", title_fontsize=12, fontsize=11)
+    plt.legend(title="Cell Type", title_fontsize=12, fontsize=11)
     
     # Убираем рамки сверху и справа для чистоты
     sns.despine()
@@ -188,9 +225,12 @@ def plot_scatter(X_2d, labels, title, save_path):
     print(f"   ✅ Сохранен график: {save_path}")
 
 
-def visualize_embeddings(embeddings: torch.Tensor, labels: np.ndarray, output_dir: str,tag = ''):
+def visualize_embeddings(embeddings: torch.Tensor, labels: np.ndarray, output_dir: str, tag='', class_names=None):
     """
     Выполняет PCA, t-SNE и UMAP проекции и сохраняет графики.
+    
+    Args:
+        class_names: словарь {label_int: name_str}, по умолчанию CLASS_NAMES
     """
     print("\n" + "="*60)
     print("ВИЗУАЛИЗАЦИЯ ЛАТЕНТНОГО ПРОСТРАНСТВА")
@@ -208,15 +248,15 @@ def visualize_embeddings(embeddings: torch.Tensor, labels: np.ndarray, output_di
     X_pca = pca.fit_transform(X)
     explained_variance = pca.explained_variance_ratio_
     title_pca = f"PCA Projection (Explained Variance: {explained_variance[0]+explained_variance[1]:.2%})"
-    plot_scatter(X_pca, labels, title_pca, os.path.join(output_dir, tag + "visualization_pca.png"))
+    plot_scatter(X_pca, labels, title_pca, os.path.join(output_dir, tag + "visualization_pca.png"), class_names=class_names)
     
     # 2. t-SNE (t-distributed Stochastic Neighbor Embedding) - Нелинейный, вероятностный
     print("\n🗺️ Вычисление t-SNE...")
     # Параметр perplexity влияет на баланс внимания между локальными и глобальными аспектами
     # Обычно выбирают между 5 и 50. Чем больше данных, тем больше можно ставить.
-    tsne = TSNE(n_components=2, perplexity=min(30, len(X)/10), max_iter=1500, random_state=42, n_jobs=-1)
-    X_tsne = tsne.fit_transform(X)
-    plot_scatter(X_tsne, labels, "t-SNE Projection", os.path.join(output_dir,tag + "visualization_tsne.png"))
+    # tsne = TSNE(n_components=2, perplexity=min(30, len(X)/10), max_iter=1500, random_state=42, n_jobs=-1)
+    # X_tsne = tsne.fit_transform(X)
+    # plot_scatter(X_tsne, labels, "t-SNE Projection", os.path.join(output_dir,tag + "visualization_tsne.png"), class_names=class_names)
     
     # 3. UMAP (Uniform Manifold Approximation and Projection) - Нелинейный, топологический
     # Обычно быстрее t-SNE и лучше сохраняет глобальную структуру
@@ -226,7 +266,7 @@ def visualize_embeddings(embeddings: torch.Tensor, labels: np.ndarray, output_di
         # min_dist: насколько плотно могут группироваться точки (default=0.1)
         umap_reducer = umap.UMAP(n_components=2, n_neighbors=20, min_dist=0.1, random_state=42, n_jobs=-1)
         X_umap = umap_reducer.fit_transform(X)
-        plot_scatter(X_umap, labels, "UMAP Projection", os.path.join(output_dir,tag + "visualization_umap.png"))
+        plot_scatter(X_umap, labels, "UMAP Projection", os.path.join(output_dir,tag + "visualization_umap.png"), class_names=class_names)
     else:
         print("   Пропуск UMAP (библиотека не установлена).")
 
@@ -234,19 +274,14 @@ def visualize_embeddings(embeddings: torch.Tensor, labels: np.ndarray, output_di
 
 
 def main():
-    # Пути к данным
-    stats_path = '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/'
-    path_ab = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_ab"
-    path_wt = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_wt"
-    checkpoint_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_142/checkpoints/epoch=62-step=139923.ckpt"
-    
-    # Фичи для моделей обученных с FeatureChoice (из main ветки)
-    # Если модель обучена со всеми фичами - установить features = None
-    features = [0, 4, 5, 6, 7, 13, 14, 15, 17, 19, 20]
+    # Пути к данным (основной graph_dataset с class_path для меток)
+    graph_dataset_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
+    class_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv"
+    stats_path = '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/'
+    checkpoint_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_173/checkpoints/epoch=99-step=222100.ckpt"
     
     # Папка для сохранения результатов визуализации
-    tag = "jepa_feature_"
-
+    tag = "graph_dataset_"
     output_base_path = '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/exp/'
     visualization_dir = os.path.join(output_base_path, "visualizations")
 
@@ -290,7 +325,6 @@ def main():
     print(f"   Префикс энкодера: {encoder_prefix}")
     
     # Создаём энкодер
-    # (Этот импорт должен работать, если ваш проект структурирован так же, как в оригинале)
     try:
         from src.models.encoder import GraphGcnEncoder
     except ImportError:
@@ -315,41 +349,56 @@ def main():
     encoder.eval()
     print("✅ Энкодер загружен успешно!")
     
-    # Создаём DataModules для обоих классов
-    print("\n📂 Создание DataModules...")
-    dm_ab = get_datamodule(path_ab, stats_path, batch_size=32, features=features)
-    dm_wt = get_datamodule(path_wt, stats_path, batch_size=32, features=features)
+    # Создаём DataModule для основного датасета с class_path
+    print("\n📂 Создание DataModule...")
+    dm = get_datamodule(
+        path=graph_dataset_path, 
+        stats_path=stats_path, 
+        batch_size=32,
+        class_path=class_path
+    )
     
-    # Извлекаем эмбеддинги
+    # Извлекаем эмбеддинги (метки берутся из data.y, типы из data.cell_type)
     print("\n🔄 Извлечение эмбеддингов...")
-    embeddings_ab, labels_ab, files_ab = extract_embeddings(
-        encoder, dm_ab, label=0, device=device
-    )
-    embeddings_wt, labels_wt, files_wt = extract_embeddings(
-        encoder, dm_wt, label=1, device=device
+    all_embeddings, all_labels, all_cell_types, all_files = extract_embeddings(
+        encoder, dm, device=device
     )
     
-    # Объединяем эмбеддинги обоих классов
-    all_embeddings = torch.cat([embeddings_ab, embeddings_wt], dim=0)
-    all_labels = np.concatenate([labels_ab, labels_wt])
-    all_files = files_ab + files_wt
+    # Статистика
+    unique_labels, counts = np.unique(all_labels, return_counts=True)
+    print(f"\n📊 Статистика датасета (бинарная классификация):")
+    for label, count in zip(unique_labels, counts):
+        class_name = CLASS_NAMES.get(int(label), f'Class {label}')
+        print(f"   {class_name} (label={int(label)}): {count} графов")
     
-    print(f"\n📊 Статистика датасета:")
-    print(f"   Класс AB (label=0): {len(labels_ab)} графов")
-    print(f"   Класс WT (label=1): {len(labels_wt)} графов")
+    unique_ct, ct_counts = np.unique(all_cell_types, return_counts=True)
+    print(f"\n📊 Статистика датасета (по типам клеток):")
+    for ct, count in zip(unique_ct, ct_counts):
+        print(f"   {ct}: {count} графов")
+    
     print(f"   Всего: {len(all_labels)} графов")
     print(f"   Размерность эмбеддингов: {all_embeddings.shape[1]}")
     
-    # --- ЗАПУСК ВИЗУАЛИЗАЦИИ ВМЕСТО ЭСТИМАТОРОВ ---
-    visualize_embeddings(all_embeddings, all_labels, visualization_dir,tag = tag)
+    # Визуализация 1: по бинарным классам (Pyramidal / Interneuron)
+    visualize_embeddings(all_embeddings, all_labels, visualization_dir, tag=tag)
     
-    # Сохраняем сами эмбеддинги и метки на всякий случай
-    print(f"\n💾 Сохранение сырых эмбеддингов в {output_base_path}...")
+    # Визуализация 2: по детальным типам клеток (23P, 4P, BC, ...)
+    # Создаём числовые метки из строковых типов для plot_scatter
+    ct_to_idx = {ct: i for i, ct in enumerate(sorted(np.unique(all_cell_types)))}
+    ct_labels = np.array([ct_to_idx[ct] for ct in all_cell_types])
+    ct_class_names = {v: k for k, v in ct_to_idx.items()}
+    visualize_embeddings(all_embeddings, ct_labels, visualization_dir, 
+                         tag=tag + "celltype_", class_names=ct_class_names)
+    
+    # Сохраняем эмбеддинги, метки и имена файлов
+    save_path = os.path.join(visualization_dir, tag + 'embeddings_raw.pt')
+    print(f"\n💾 Сохранение эмбеддингов в {save_path}...")
     torch.save({
         'embeddings': all_embeddings,
         'labels': all_labels,
+        'cell_types': all_cell_types,
         'files': all_files
-    }, os.path.join(visualization_dir, tag + 'embeddings_raw.pt'))
+    }, save_path)
     
     print(f"\n✅ Готово! Графики сохранены в: {visualization_dir}")
     

@@ -129,7 +129,8 @@ class GraphPruning(torch.nn.Module):
             edge_index=new_edge_index,
             edge_attr=new_edge_attr,
             pos=data.pos,
-            y=data.y if hasattr(data, 'y') else None,
+            y=data.y if hasattr(data, 'y') and data.y is not None else None,
+            segment_id=data.segment_id if hasattr(data, 'segment_id') else None,
             batch=batch
         )
 
@@ -211,7 +212,8 @@ class MaskData(torch.nn.Module):
                 pos=data.pos[subset] if data.pos is not None else None,
                 edge_index=edge_index,
                 edge_attr=edge_attr,
-                y=data.y[subset] if hasattr(data, 'y') and data.y is not None else None
+                y=data.y if hasattr(data, 'y') and data.y is not None else None,
+                segment_id=data.segment_id if hasattr(data, 'segment_id') else None,
             )
 
         return build_subgraph(subset_ctx), build_subgraph(subset_tgt)

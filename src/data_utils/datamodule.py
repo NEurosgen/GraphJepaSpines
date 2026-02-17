@@ -8,15 +8,40 @@ from torch_geometric.data import Dataset
 import torch
 import random
 import os
+import re
+import pandas as pd
+from pathlib import Path
 
+MAP = {
+ '23P': 0,
+ '4P': 0,
+ '5P-IT': 0,
+ '5P-NP': 0,
+ '5P-PT': 0,
+ '6P-CT': 0,
+ '6P-IT': 0,
+ 'BC': 1,
+ 'BPC': 1,
+ 'MC': 1,
+ 'NGC': 1,
+}
 
-
-
+def get_class(df , file_path):
+    """Возвращает (mapped_label, raw_cell_type_string)."""
+    neuron_id = int(re.findall(r'\d+', file_path.stem)[0])
+    result = df.loc[df['segment_id']==neuron_id,'cell_type']
+    if not result.empty:
+        raw_type = result.values[0]
+        cell_type_value = MAP.get(raw_type, 1)  
+    else:
+        raw_type = 'Unknown'
+        cell_type_value = 1
+    return cell_type_value, raw_type
 
 
 
 class GraphDataSet(Dataset):
-    def __init__(self, path, transform=None, save_cache=False):
+    def __init__(self, path, transform=None, save_cache=False, class_path = None):
         super().__init__(None, None) 
         self.my_transform = transform
         self.path = path
@@ -24,14 +49,21 @@ class GraphDataSet(Dataset):
 
         self.cache = dict()
         self.save_cache = save_cache
+        self.df = pd.read_csv(class_path) if class_path is not None else None
 
     
     def len(self):
         return len(self.file_names)
     
     def _load_to_cache(self, idx):
-        file_path = os.path.join(self.path, self.file_names[idx])
+        file_path = Path(os.path.join(self.path, self.file_names[idx]))
         out = torch.load(file_path, weights_only=False)
+        seg_id = int(re.findall(r'\d+', file_path.stem)[0])
+        out.segment_id = torch.tensor(seg_id, dtype=torch.long)
+        if self.df is not None:
+            cell_type_value, raw_type = get_class(self.df, file_path)
+            out.y = cell_type_value
+            out.cell_type = raw_type
         self.cache[idx] = out
         return out
 
