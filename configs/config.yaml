@@ -76,7 +76,11 @@ representation:
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
   checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_212/checkpoints/epoch=86-step=193227.ckpt'
-  num_classes: 12
+  num_classes: 2
+  class_names: ["ab", "wt"]
+  folder_to_label:
+    ab: 0
+    wt: 1
   learning_rate: 1e-2
   max_epochs: 1
   sigma: 1.0

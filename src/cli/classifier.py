@@ -11,7 +11,7 @@ from omegaconf import DictConfig
 from hydra.utils import instantiate
 
 from ..models.jepa import JepaLight
-from ..data_utils.datamodule import GraphDataModule, GraphDataSet
+from ..data_utils.datamodule import GraphDataModule, GraphDataSet, make_folder_class_getter
 from ..data_utils.transforms import (
     GenNormalize,
     NormNoEps,
@@ -19,7 +19,7 @@ from ..data_utils.transforms import (
     GraphPruning,
     FeatureChoice,
 )
-from ..cli.train_model import load_stats, build_transforms
+from .train_model import load_stats, build_transforms
 
 torch.set_float32_matmul_precision('high')
 
@@ -263,12 +263,14 @@ def main(cfg: DictConfig):
     encoder.eval()
 
 
-    num_classes = cls_cfg.get("num_classes", 12)
+    num_classes = cls_cfg.get("num_classes", 2)
     embed_dim = cfg.network.encoder.out_channels
     classifier_head = LinearClassifier(in_channels=embed_dim, num_classes=num_classes)
 
-
-    class_names = ["excitatory", "inhibitory"]
+    # Классы из конфига: class_names и folder_to_label
+    class_names = list(cls_cfg.get("class_names", ["ab", "wt"]))
+    folder_to_label = dict(cls_cfg.get("folder_to_label", {"ab": 0, "wt": 1}))
+    get_class = make_folder_class_getter(folder_to_label)
 
     module = ClassifierLightModule(
         encoder=encoder,
@@ -286,8 +288,8 @@ def main(cfg: DictConfig):
 
     ds = GraphDataSet(
         path=dm_cfg.dataset.path,
+        get_class=get_class,
         transform=gen_normalize,
-        class_path=dm_cfg.dataset.class_path,
     )
 
     datamodule = GraphDataModule(
