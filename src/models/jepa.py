@@ -262,7 +262,7 @@ class JepaLight(L.LightningModule):
     def _compute_representation_metrics(self):
         if self.repr_dataloader is None:
             return {}
-        from torch_geometric.nn import global_mean_pool #можно заменить на add но сомнительно
+        from torch_geometric.nn import global_add_pool #можно заменить на add но сомнительно
         embeddings_list = []
         
         for batch in self.repr_dataloader:
@@ -272,9 +272,9 @@ class JepaLight(L.LightningModule):
                 edge_attr = torch.exp(-edge_attr**2 / self.sigma**2)
             emb = self.encode(batch.x, batch.edge_index, edge_attr)
             if hasattr(batch, 'batch') and batch.batch is not None:
-                graph_emb = global_mean_pool(emb, batch.batch)
+                graph_emb = global_add_pool(emb, batch.batch)
             else:
-                graph_emb = emb.mean(dim=0, keepdim=True)
+                graph_emb = emb.sum(dim=0, keepdim=True)
             embeddings_list.append(graph_emb)
         if not embeddings_list:
             return {}

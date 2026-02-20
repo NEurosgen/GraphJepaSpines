@@ -20,7 +20,8 @@ from ..data_utils.transforms import (
     FeatureChoice,
 )
 from .train_model import load_stats, build_transforms
-
+from hydra.utils import instantiate
+from omegaconf import OmegaConf
 torch.set_float32_matmul_precision('high')
 
 
@@ -32,10 +33,11 @@ class LinearClassifier(nn.Module):
     def __init__(self, in_channels: int, num_classes: int):
         super().__init__()
         self.fd =  nn.Sequential(
+            nn.LayerNorm(in_channels),
             nn.Linear(in_channels, in_channels),
+            nn.Dropout(0.3),
             nn.ReLU(),
-            nn.Linear(in_channels, in_channels),
-            nn.ReLU(),
+    
             )
             
         self.head = nn.Linear(in_channels, num_classes)
@@ -58,23 +60,24 @@ class ClassifierLightModule(L.LightningModule):
 
     def __init__(self, encoder: nn.Module, classifier: LinearClassifier,
                  learning_rate: float = 1e-3, sigma: float = 1.0,
-                 class_names: list = None):
+                 class_names: list = None, cfg: DictConfig = None):
         super().__init__()
         self.save_hyperparameters(ignore=['encoder', 'classifier'])
 
         self.encoder = encoder
         self.encoder.requires_grad_(False)
         self.encoder.eval()
-
         self.classifier = classifier
         self.sigma = sigma
         self.learning_rate = learning_rate
-        self.loss_fn = nn.CrossEntropyLoss( label_smoothing=0.05)
-
+        self.loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([1., 1.0]),reduction='none')
+        self.optimizer_cfg = cfg.optimizer
+        self.scheduler_cfg = cfg.get("scheduler", None)
         self.class_names = class_names
 
         self._test_preds = []
         self._test_labels = []
+
         self._test_embeddings = []
         self._test_segment_ids = []
 
@@ -207,7 +210,40 @@ class ClassifierLightModule(L.LightningModule):
         self._test_preds.clear()
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.classifier.parameters(), lr=self.learning_rate)
+        param_groups = [
+        # {
+        #     'params': self.encoder.parameters(),
+        #     'lr': self.learning_rate*0.01
+        # },
+        {
+            'params': self.classifier.parameters(),
+            'lr': self.learning_rate  
+        }
+        ]
+
+
+        params = list(self.classifier.parameters())
+        opt_cfg = OmegaConf.to_container(self.optimizer_cfg, resolve=True)
+        opt_target = opt_cfg.pop('_target_')
+        
+        import torch.optim as optim
+        optimizer_class = getattr(optim, opt_target.split('.')[-1])
+        optimizer = optimizer_class(params, lr=self.learning_rate, **opt_cfg)
+        
+        if self.scheduler_cfg is not None:
+            sched_cfg = OmegaConf.to_container(self.scheduler_cfg, resolve=True)
+            sched_target = sched_cfg.pop('_target_')
+            scheduler_class = getattr(optim.lr_scheduler, sched_target.split('.')[-1])
+            scheduler = scheduler_class(optimizer, **sched_cfg)
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": "epoch"
+                }
+            }
+        
+        return optimizer
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────
@@ -239,7 +275,7 @@ def _load_encoder_from_checkpoint(ckpt_path: str, cfg: DictConfig) -> nn.Module:
                 encoder_sd[k[len(encoder_prefix):]] = v
 
     if encoder_sd:
-        network.student_encoder.load_state_dict(encoder_sd, strict=False)
+        network.encoder.load_state_dict(encoder_sd, strict=False)
         print(f"Loaded encoder from checkpoint: {ckpt_path}")
     else:
         print(f"WARNING: Could not find encoder weights in checkpoint, using randomly initialized encoder!")
@@ -259,8 +295,7 @@ def main(cfg: DictConfig):
 
 
     encoder = _load_encoder_from_checkpoint(cls_cfg.checkpoint_path, cfg)
-    encoder.requires_grad_(False)
-    encoder.eval()
+  
 
 
     num_classes = cls_cfg.get("num_classes", 2)
@@ -278,16 +313,17 @@ def main(cfg: DictConfig):
         learning_rate=cls_cfg.get("learning_rate", 1e-3),
         sigma=cls_cfg.get("sigma", 1.0),
         class_names=class_names[:num_classes],
+        cfg=cls_cfg
     )
 
 
     dm_cfg = cfg.datamodule
-    mean_x, std_x, mean_edge, std_edge = load_stats(dm_cfg.dataset.stats_path)
+    mean_x, std_x, mean_edge, std_edge = load_stats(cls_cfg.stats_path)
     transforms = build_transforms(dm_cfg, mean_x, std_x, mean_edge, std_edge)
     gen_normalize = GenNormalize(transforms=transforms, mask_transform=None)
 
     ds = GraphDataSet(
-        path=dm_cfg.dataset.path,
+        path=cls_cfg.path,
         get_class=get_class,
         transform=gen_normalize,
     )

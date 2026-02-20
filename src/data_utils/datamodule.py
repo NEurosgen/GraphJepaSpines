@@ -17,8 +17,9 @@ class GraphDataSet(Dataset):
     def __init__(self, path, get_class: Callable = None, transform=None, save_cache=False):
         super().__init__(None, None) 
         self.my_transform = transform
-        self.path = path
-        self.file_names = [f for f in os.listdir(self.path) if f.endswith('.pt')]
+        self.path = Path(path)
+        # Рекурсивный поиск .pt файлов (поддержка подпапок вроде ab/, wt/)
+        self.file_paths = sorted(self.path.rglob('*.pt'))
         self.get_class = get_class
         self.cache = dict()
         self.save_cache = save_cache
@@ -26,10 +27,10 @@ class GraphDataSet(Dataset):
 
     
     def len(self):
-        return len(self.file_names)
+        return len(self.file_paths)
     
     def _load_to_cache(self, idx):
-        file_path = Path(os.path.join(self.path, self.file_names[idx]))
+        file_path = self.file_paths[idx]
         out = torch.load(file_path, weights_only=False)
         seg_id = int(re.findall(r'\d+', file_path.stem)[0])
         out.segment_id = torch.tensor(seg_id, dtype=torch.long)
