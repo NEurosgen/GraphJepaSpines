@@ -1,4 +1,4 @@
-seed: 52
+seed: 51
 
 # Network configuration
 network:
@@ -7,14 +7,14 @@ network:
     _target_: src.models.encoder.GraphGinEncoder
     in_channels: 21  # Matches dataset feature dimension
     out_channels: 64
-    num_layers: 6
+    num_layers: 2
   predictor:
     _target_: src.models.jepa.CrossAttentionPredictor
     hidden_dim: 64
     pos_dim: 3
     num_heads: 2
-    dropout: 0.1
-  lambd: 0.1
+    dropout: 0.05
+  lambd: 0.01
   num_slices: 128
   ema: 0.996
   
@@ -48,12 +48,12 @@ datamodule:
     stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/'
     class_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv'
   #features: [0,4,5,6,7,13,14,15,17,19,20]
-  batch_size: 32
+  batch_size: 1
   num_workers: 2
-  knn: 4
-  mask_ratio: 0.1
+  knn: 6
+  mask_ratio: 0.05
   seed: ${seed}
-  ratio: [0.7, 0.2, 0.1]
+  ratio: [0.9,0.1]
 
 
 representation:
@@ -75,8 +75,22 @@ representation:
 
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
-  checkpoint_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_189/checkpoints/epoch=24-step=55525.ckpt"
+  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_412/checkpoints/epoch=72-step=6570.ckpt'
+  path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/9009"
+  stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
   num_classes: 2
-  learning_rate: 1e-3
-  max_epochs: 1
+  class_names: ["ab", "wt"]
+  folder_to_label:
+    ab: 0
+    wt: 1
+  learning_rate: 1e-2
+  weight_decay: 1e-5
+  max_epochs: 50
+  optimizer:
+    _target_: torch.optim.SGD
+    weight_decay: ${classifier.weight_decay}
+  scheduler: 
+    _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+    T_max: ${classifier.max_epochs}
+
   sigma: 1.0

@@ -1,7 +1,7 @@
 import torch_geometric
 
 import pytorch_lightning as pl
-from typing import Optional
+from typing import Optional, Callable, Dict
 
 from torch.utils.data import random_split, DataLoader
 from torch_geometric.data import Dataset
@@ -12,54 +12,30 @@ import re
 import pandas as pd
 from pathlib import Path
 
-MAP = {
- '23P': 0,
- '4P': 0,
- '5P-IT': 0,
- '5P-NP': 0,
- '5P-PT': 0,
- '6P-CT': 0,
- '6P-IT': 0,
- 'BC': 1,
- 'BPC': 1,
- 'MC': 1,
- 'NGC': 1,
-}
-
-def get_class(df , file_path) -> int:
-    neuron_id = int(re.findall(r'\d+', file_path.stem)[0])
-    result = df.loc[df['segment_id']==neuron_id,'cell_type']
-    if not result.empty:
-        cell_type_value = MAP.get(result.values[0], 1)  
-    else:
-        cell_type_value = 1
-    return cell_type_value
-
-
 
 class GraphDataSet(Dataset):
-    def __init__(self, path, transform=None, save_cache=False, class_path = None):
+    def __init__(self, path, get_class: Callable = None, transform=None, save_cache=False):
         super().__init__(None, None) 
         self.my_transform = transform
-        self.path = path
-        self.file_names = [f for f in os.listdir(self.path) if f.endswith('.pt')]
-
+        self.path = Path(path)
+        # Рекурсивный поиск .pt файлов (поддержка подпапок вроде ab/, wt/)
+        self.file_paths = sorted(self.path.rglob('*.pt'))
+        self.get_class = get_class
         self.cache = dict()
         self.save_cache = save_cache
-        self.df = pd.read_csv(class_path) if class_path is not None else None
+       
 
     
     def len(self):
-        return len(self.file_names)
+        return len(self.file_paths)
     
     def _load_to_cache(self, idx):
-        file_path = Path(os.path.join(self.path, self.file_names[idx]))
+        file_path = self.file_paths[idx]
         out = torch.load(file_path, weights_only=False)
         seg_id = int(re.findall(r'\d+', file_path.stem)[0])
         out.segment_id = torch.tensor(seg_id, dtype=torch.long)
-        if self.df is not None:
-            cell_type_value = get_class(self.df, file_path)
-            out.y = cell_type_value
+        if self.get_class is not None:
+            out.y = self.get_class(file_path)
         self.cache[idx] = out
         return out
 
@@ -128,3 +104,29 @@ class GraphDataModule(pl.LightningDataModule):
                            pin_memory=True,
                            collate_fn=self.collate_fn)
 
+
+def make_folder_class_getter(folder_to_label: Dict[str, int]) -> Callable:
+    """
+    Создаёт get_class функцию, которая определяет класс графа
+    по имени родительской папки.
+
+    Args:
+        folder_to_label: маппинг имя_папки -> числовой_label.
+            Сравнение регистронезависимое.
+            Пример: {"ab": 0, "wt": 1}
+
+    Returns:
+        Callable[[Path], torch.Tensor]: функция file_path -> label tensor
+    """
+    mapping = {k.lower(): v for k, v in folder_to_label.items()}
+
+    def get_class(file_path: Path) -> torch.Tensor:
+        folder_name = Path(file_path).parent.name.lower()
+        if folder_name not in mapping:
+            raise ValueError(
+                f"Folder '{folder_name}' not in mapping {mapping}. "
+                f"File: {file_path}"
+            )
+        return torch.tensor(mapping[folder_name], dtype=torch.long)
+
+    return get_class
