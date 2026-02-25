@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import pytorch_lightning as L
 import numpy as np
-from torch_geometric.nn import global_mean_pool
+from torch_geometric.nn import global_add_pool
 from torch_geometric.data import Batch
 from sklearn.metrics import f1_score as sklearn_f1_score
 
@@ -32,20 +32,17 @@ class LinearClassifier(nn.Module):
 
     def __init__(self, in_channels: int, num_classes: int):
         super().__init__()
-        self.fd =  nn.Sequential(
+        self.head = nn.Sequential(
             nn.LayerNorm(in_channels),
+            #nn.Dropout(0.5), # Strong dropout for regularization on 41 training samples
             nn.Linear(in_channels, in_channels),
-            nn.Dropout(0.3),
             nn.ReLU(),
-    
-            )
-            
-        self.head = nn.Linear(in_channels, num_classes)
-        
+            nn.Linear(in_channels, num_classes)
+
+        )
 
     def forward(self, embed: torch.Tensor) -> torch.Tensor:
-        out = self.fd(embed)
-        return self.head(out)
+        return self.head(embed)
 
 
 # ─── Lightning Module ─────────────────────────────────────────────────────
@@ -83,11 +80,51 @@ class ClassifierLightModule(L.LightningModule):
 
     def _encode_graph(self, batch) -> torch.Tensor:
         """Encode graph batch → graph-level embedding."""
+        self.encoder.eval() # Prevent Lightning from putting it in train mode
         edge_attr = batch.edge_attr
         if edge_attr is not None:
             edge_attr = torch.exp(-edge_attr ** 2 / self.sigma ** 2)
         node_emb = self.encoder(batch.x, batch.edge_index, edge_attr)
-        graph_emb = global_mean_pool(node_emb, batch.batch)
+        graph_emb = global_add_pool(node_emb, batch.batch)
+        
+        # --- Add Graph Macro-Features ---
+        num_graphs = batch.batch.max().item() + 1
+        num_nodes = torch.bincount(batch.batch, minlength=num_graphs).float()
+        
+        if batch.edge_index.numel() > 0:
+            edge_batch = batch.batch[batch.edge_index[0]]
+            num_edges = torch.bincount(edge_batch, minlength=num_graphs).float()
+        else:
+            num_edges = torch.zeros(num_graphs, device=batch.x.device)
+            
+        density = num_edges / (num_nodes * (num_nodes - 1)).clamp(min=1)
+        
+        # Normalize features roughly based on target dataset statistics
+        num_nodes_norm = (num_nodes - 11.0) / 3.5
+        num_edges_norm = (num_edges - 45.0) / 15.0
+        
+        basic_macro = torch.stack([num_nodes_norm, num_edges_norm, density], dim=-1).to(graph_emb.dtype)
+        
+        # Pull the ThesisMacroMetrics pre-computed during Data Loading
+        # shape of batch.macro_metrics is [num_nodes, 3], but it's identical for all nodes in the same graph.
+        # So we can just pool it with mean or scatter
+        if hasattr(batch, 'macro_metrics') and batch.macro_metrics is not None:
+            from torch_geometric.utils import scatter
+            # macro_metrics is attached at graph-level by the transform, but PyG batching 
+            # might have concatenated it to [num_nodes, 3] or [num_graphs, 3] depending on how it was saved.
+            # Assuming it was saved as a graph-level attribute:
+            if batch.macro_metrics.size(0) == num_graphs:
+                thesis_macro = batch.macro_metrics.to(graph_emb.dtype)
+            else:
+                # Fallback if PyG replicated it per-node or something weird
+                thesis_macro = scatter(batch.macro_metrics, batch.batch, dim=0, reduce='mean').to(graph_emb.dtype)
+        else:
+            thesis_macro = torch.zeros((num_graphs, 4), dtype=graph_emb.dtype, device=graph_emb.device)
+        
+        macro_features = torch.cat([basic_macro, thesis_macro], dim=-1)
+        graph_emb = torch.cat([graph_emb, macro_features], dim=-1)
+        # --------------------------------
+        
         return graph_emb
 
     def forward(self, batch):
@@ -105,7 +142,7 @@ class ClassifierLightModule(L.LightningModule):
     def training_step(self, batch):
         logits = self.forward(batch)
         labels = batch.y.long()
-        loss = self.loss_fn(logits, labels)
+        loss = self.loss_fn(logits, labels).mean()
         preds = logits.argmax(dim=-1)
         acc = (preds == labels).float().mean()
         f1 = self._compute_f1(preds, labels)
@@ -117,7 +154,7 @@ class ClassifierLightModule(L.LightningModule):
     def validation_step(self, batch):
         logits = self.forward(batch)
         labels = batch.y.long()
-        loss = self.loss_fn(logits, labels)
+        loss = self.loss_fn(logits, labels).mean()
         preds = logits.argmax(dim=-1)
         acc = (preds == labels).float().mean()
         f1 = self._compute_f1(preds, labels)
@@ -131,7 +168,7 @@ class ClassifierLightModule(L.LightningModule):
             graph_emb = self._encode_graph(batch)
         logits = self.classifier(graph_emb)
         labels = batch.y.long()
-        loss = self.loss_fn(logits, labels)
+        loss = self.loss_fn(logits, labels).mean()
         preds = logits.argmax(dim=-1)
         acc = (preds == labels).float().mean()
         f1 = self._compute_f1(preds, labels)
@@ -158,7 +195,11 @@ class ClassifierLightModule(L.LightningModule):
             per_graph_logits = self.classifier(all_embeddings.to(self.device))
         per_graph_preds = per_graph_logits.argmax(dim=-1).cpu().numpy()
 
-        num_classes = self.classifier.head.out_features
+        # Get num_classes from the Linear layer inside Sequential
+        if isinstance(self.classifier.head, nn.Sequential):
+            num_classes = self.classifier.head[-1].out_features
+        else:
+            num_classes = self.classifier.head.out_features
         all_label_ids = list(range(num_classes))
         target_names = self.class_names[:num_classes] if self.class_names else None
 
@@ -210,18 +251,6 @@ class ClassifierLightModule(L.LightningModule):
         self._test_preds.clear()
 
     def configure_optimizers(self):
-        param_groups = [
-        # {
-        #     'params': self.encoder.parameters(),
-        #     'lr': self.learning_rate*0.01
-        # },
-        {
-            'params': self.classifier.parameters(),
-            'lr': self.learning_rate  
-        }
-        ]
-
-
         params = list(self.classifier.parameters())
         opt_cfg = OmegaConf.to_container(self.optimizer_cfg, resolve=True)
         opt_target = opt_cfg.pop('_target_')
@@ -299,7 +328,8 @@ def main(cfg: DictConfig):
 
 
     num_classes = cls_cfg.get("num_classes", 2)
-    embed_dim = cfg.network.encoder.out_channels
+    # The new embed dim integrates the macro graph features (3 items) + thesis metrics (4 items) = 7
+    embed_dim = cfg.network.encoder.out_channels + 7
     classifier_head = LinearClassifier(in_channels=embed_dim, num_classes=num_classes)
 
     # Классы из конфига: class_names и folder_to_label

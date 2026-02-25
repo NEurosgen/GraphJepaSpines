@@ -1,7 +1,7 @@
 import torch_geometric
 import torch
 import torch.nn as nn
-from torch_geometric.nn import knn_graph
+from torch_geometric.nn import knn_graph, radius_graph
 
 
 def fast_normalization_by_features(data, eps=1e-6):
@@ -96,38 +96,55 @@ from torch_geometric.utils import subgraph, k_hop_subgraph, to_undirected
 
 class GraphPruning(torch.nn.Module):
     '''
-    Return pruned graph with knn
-
+    Return pruned graph with knn or radius
     '''
-    def __init__(self, k = -1, mutual = False):
+    def __init__(self, k = -1, r = -1.0, mutual = False):
         super().__init__()
         self.k = k
+        self.r = r
         self.mutual = mutual
     def forward(self, data):
-        if self.k < 0:
+        if self.k < 0 and self.r <= 0.0:
             return data
+            
         batch = data.batch
-        knn_edge_index = knn_graph(data.pos,self.k,batch,loop=False)
-        row,col = knn_edge_index
         num_nodes = data.num_nodes
-        if self.mutual:
+        
+        if self.r > 0.0:
+            # Generate edges based on spatial distance (like DBSCAN)
+            new_edge_index = radius_graph(data.pos, r=self.r, batch=batch, loop=False)
+            row, col = new_edge_index
+        else:
+            # Fallback to older KNN logic
+            new_edge_index = knn_graph(data.pos, self.k, batch, loop=False)
+            row, col = new_edge_index
+            
+        if self.mutual and self.r <= 0.0: # mutual has no meaning for radius, it's always symmetric
             knn_hashes = row*num_nodes + col
             knn_hashes_rev = col*num_nodes + row
             is_mutual = torch.isin(knn_hashes,knn_hashes_rev)
             valid_hashes = knn_hashes[is_mutual]
         else:
             valid_hashes = row*num_nodes + col
+            
         curr_row, curr_col = data.edge_index
         curr_hashes = curr_row * num_nodes + curr_col
         mask = torch.isin(curr_hashes, valid_hashes)
-        new_edge_index = data.edge_index[:, mask]
-        new_edge_attr = None
+        
+        # Also need to make sure we don't accidentally lose edges that radius_graph found
+        # but the original mesh didn't have? 
+        # Actually, the user's code previously filtered existing mesh edges to only keep those 
+        # present in KNN. We will do the same for Radius Graph.
+        
+        pruned_edge_index = data.edge_index[:, mask]
+        pruned_edge_attr = None
         if data.edge_attr is not None:
-            new_edge_attr = data.edge_attr[mask]
+            pruned_edge_attr = data.edge_attr[mask]
+            
         return Data(
             x=data.x,
-            edge_index=new_edge_index,
-            edge_attr=new_edge_attr,
+            edge_index=pruned_edge_index,
+            edge_attr=pruned_edge_attr,
             pos=data.pos,
             y=data.y if hasattr(data, 'y') and data.y is not None else None,
             segment_id=data.segment_id if hasattr(data, 'segment_id') else None,
@@ -231,6 +248,131 @@ class FeatureChoice(nn.Module):
     def forward(self, data):
         if self.feature is not None:
             data.x = data.x[:, self.feature]
+        return data
+
+
+class LaplacianPE(torch.nn.Module):
+    """
+    Laplacian Positional Encoding.
+    Вычисляет k наименьших нетривиальных собственных векторов 
+    нормализованного лапласиана L = I - D^{-1/2}AD^{-1/2}
+    и конкатенирует их к data.x.
+    """
+    def __init__(self, k: int = 4):
+        super().__init__()
+        self.k = k
+
+    def forward(self, data):
+        from torch_geometric.utils import to_scipy_sparse_matrix, get_laplacian
+        import numpy as np
+        from scipy.sparse.linalg import eigsh
+
+        num_nodes = data.num_nodes
+        device = data.x.device
+
+        # Normalized Laplacian
+        edge_index_lap, edge_weight_lap = get_laplacian(
+            data.edge_index, normalization='sym', num_nodes=num_nodes
+        )
+        L = to_scipy_sparse_matrix(edge_index_lap, edge_weight_lap, num_nodes=num_nodes)
+
+        # Compute k smallest non-trivial eigenvectors
+        # We request k+1 eigenvectors and skip the first (trivial, eigenvalue ≈ 0)
+        num_to_compute = min(self.k + 1, num_nodes - 1)
+        if num_to_compute < 2:
+            # Graph too small — pad with zeros
+            pe = torch.zeros(num_nodes, self.k, device=device)
+        else:
+            try:
+                eigenvalues, eigenvectors = eigsh(
+                    L.tocsc(), k=num_to_compute, which='SM', tol=1e-4
+                )
+                # Sort by eigenvalue ascending, skip the first (trivial)
+                idx = np.argsort(eigenvalues)
+                eigenvectors = eigenvectors[:, idx[1:]]  # skip trivial
+
+                pe = torch.from_numpy(eigenvectors).float().to(device)
+                # Pad if fewer eigenvectors than k
+                if pe.shape[1] < self.k:
+                    padding = torch.zeros(num_nodes, self.k - pe.shape[1], device=device)
+                    pe = torch.cat([pe, padding], dim=1)
+                else:
+                    pe = pe[:, :self.k]
+            except Exception:
+                pe = torch.zeros(num_nodes, self.k, device=device)
+
+        # Sign ambiguity: make the largest absolute value in each column positive
+        sign = torch.sign(pe[pe.abs().argmax(dim=0), torch.arange(self.k, device=device)])
+        sign[sign == 0] = 1
+        pe = pe * sign.unsqueeze(0)
+
+        data.x = torch.cat([data.x, pe], dim=1)
+        return data
+
+
+class CentralityEncoding(torch.nn.Module):
+    """
+    Centrality Encoding.
+    Конкатенирует степень узла (нормированную на max degree) к data.x.
+    """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, data):
+        from torch_geometric.utils import degree
+
+        device = data.x.device
+        num_nodes = data.num_nodes
+        row = data.edge_index[0]
+        deg = degree(row, num_nodes=num_nodes).float().to(device)
+
+        max_deg = deg.max()
+        if max_deg > 0:
+            deg = deg / max_deg
+
+        data.x = torch.cat([data.x, deg.unsqueeze(1)], dim=1)
+        return data
+
+
+class RandomWalkPE(torch.nn.Module):
+    """
+    Random Walk Positional Encoding.
+    Для каждого шага 1..walk_length вычисляет вероятность возврата
+    (диагональный элемент M^step), где M = D^{-1}A — матрица переходов.
+    Конкатенирует walk_length столбцов к data.x.
+    """
+    def __init__(self, walk_length: int = 8):
+        super().__init__()
+        self.walk_length = walk_length
+
+    def forward(self, data):
+        from torch_geometric.utils import to_scipy_sparse_matrix
+        import numpy as np
+
+        num_nodes = data.num_nodes
+        device = data.x.device
+
+        # Build adjacency and transition matrix M = D^{-1}A
+        adj = to_scipy_sparse_matrix(data.edge_index, num_nodes=num_nodes).tocsr()
+        deg = np.array(adj.sum(axis=1)).flatten()
+        deg_inv = np.zeros_like(deg)
+        nonzero = deg > 0
+        deg_inv[nonzero] = 1.0 / deg[nonzero]
+
+        import scipy.sparse as sp
+        D_inv = sp.diags(deg_inv)
+        M = D_inv @ adj  # transition matrix
+
+        # Compute diag(M^step) for step = 1..walk_length
+        pe_list = []
+        M_power = M.copy()
+        for _ in range(self.walk_length):
+            diag = torch.from_numpy(M_power.diagonal().copy()).float().to(device)
+            pe_list.append(diag.unsqueeze(1))
+            M_power = M_power @ M
+
+        pe = torch.cat(pe_list, dim=1)  # (num_nodes, walk_length)
+        data.x = torch.cat([data.x, pe], dim=1)
         return data
 
 
