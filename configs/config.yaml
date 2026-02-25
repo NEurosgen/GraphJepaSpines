@@ -5,17 +5,17 @@ network:
   _target_: src.models.jepa.LeJEPA
   encoder:
     _target_: src.models.encoder.GraphGinEncoder
-    in_channels: 21  # Matches dataset feature dimension
-    out_channels: 64
+    in_channels: 31  # Base 21 + Laplacian 4 + Centrality 1 + RW 5 = 31
+    out_channels: 32
     num_layers: 2
   predictor:
     _target_: src.models.jepa.CrossAttentionPredictor
-    hidden_dim: 64
+    hidden_dim: 32
     pos_dim: 3
     num_heads: 2
     dropout: 0.05
   lambd: 0.01
-  num_slices: 128
+  num_slices: 32
   ema: 0.996
   
 
@@ -23,7 +23,7 @@ network:
 training:
   learning_rate: 1e-2
   weight_decay: 1e-5
-  max_epochs: 100
+  max_epochs: 200
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
@@ -48,12 +48,18 @@ datamodule:
     stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/'
     class_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv'
   #features: [0,4,5,6,7,13,14,15,17,19,20]
-  batch_size: 1
+  batch_size: 2
   num_workers: 2
-  knn: 6
-  mask_ratio: 0.05
+  r: 1.5
+  mutual_knn: True
+  mask_ratio: 0.01
+  structural_encoding:
+    laplacian_k: 4       # 4 features
+    centrality: true     # 1 feature
+    random_walk_steps: 5  # 5 features
   seed: ${seed}
-  ratio: [0.9,0.1]
+
+  ratio: [0.75,0.25]
 
 
 representation:
@@ -72,10 +78,15 @@ representation:
     - uniformity
 
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
+  r: 1.5
+  structural_encoding:
+    laplacian_k: 4
+    centrality: true
+    random_walk_steps: 5
 
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
-  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_412/checkpoints/epoch=72-step=6570.ckpt'
+  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_513/checkpoints/epoch=199-step=15000.ckpt'
   path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/9009"
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
   num_classes: 2
@@ -83,11 +94,11 @@ classifier:
   folder_to_label:
     ab: 0
     wt: 1
-  learning_rate: 1e-2
+  learning_rate: 1e-3
   weight_decay: 1e-5
-  max_epochs: 50
+  max_epochs: 500
   optimizer:
-    _target_: torch.optim.SGD
+    _target_: torch.optim.AdamW
     weight_decay: ${classifier.weight_decay}
   scheduler: 
     _target_: torch.optim.lr_scheduler.CosineAnnealingLR

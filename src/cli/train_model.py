@@ -11,8 +11,12 @@ from ..data_utils.transforms import (
     EdgeNorm,
     GraphPruning,
     MaskData,
-    FeatureChoice
+    FeatureChoice,
+    LaplacianPE,
+    CentralityEncoding,
+    RandomWalkPE
 )
+from ..data_utils.structural_stats import ThesisMacroMetrics
 import torch
 import numpy as np
 torch.set_float32_matmul_precision('high')
@@ -43,8 +47,22 @@ def build_transforms(cfg, mean_x, std_x, mean_edge, std_edge):
     transforms.append(EdgeNorm(mean=mean_edge, std=std_edge))
     
     knn_k = cfg.get('knn', -1)
-    if knn_k > 0:
-        transforms.append(GraphPruning(k=knn_k, mutual=cfg.get('mutual_knn', False)))
+    radius_r = cfg.get('r', -1.0)
+    if knn_k > 0 or radius_r > 0.0:
+        transforms.append(GraphPruning(k=knn_k, r=radius_r, mutual=cfg.get('mutual_knn', False)))
+    
+    # Structural / Positional Encodings (after graph pruning, before masking)
+    
+    # --- Add Thesis Macro Metrics ---
+    transforms.append(ThesisMacroMetrics())
+    
+    se_cfg = cfg.get('structural_encoding', {})
+    if se_cfg.get('laplacian_k', 0) > 0:
+        transforms.append(LaplacianPE(k=se_cfg.laplacian_k))
+    if se_cfg.get('centrality', False):
+        transforms.append(CentralityEncoding())
+    if se_cfg.get('random_walk_steps', 0) > 0:
+        transforms.append(RandomWalkPE(walk_length=se_cfg.random_walk_steps))
     
     return transforms
 

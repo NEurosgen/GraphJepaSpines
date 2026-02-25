@@ -58,7 +58,8 @@ class BatchRmsNorm(nn.Module):
         self.beta = nn.Parameter(torch.zeros(in_channels))
     
     def forward(self, x, *args, **kwargs):
-        mean_sq = x.pow(2).mean(dim=0, keepdim=True)
+        # FATAL BUG FIX: Compute RMS per-node (dim=-1) instead of per-batch (dim=0)
+        mean_sq = x.pow(2).mean(dim=-1, keepdim=True)
         rms = torch.sqrt(mean_sq + self.eps)
         x_norm = x / rms
         return self.gamma * x_norm + self.beta
@@ -155,7 +156,8 @@ class BatchRmsNorm(nn.Module):
         self.beta = nn.Parameter(torch.zeros(in_channels))
     
     def forward(self, x, *args, **kwargs):
-        mean_sq = x.pow(2).mean(dim=0, keepdim=True)
+        # FATAL BUG FIX: Compute RMS per-node (dim=-1) instead of per-batch (dim=0)
+        mean_sq = x.pow(2).mean(dim=-1, keepdim=True)
         rms = torch.sqrt(mean_sq + self.eps)
         x_norm = x / rms
         return self.gamma * x_norm + self.beta
