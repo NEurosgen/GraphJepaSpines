@@ -48,7 +48,7 @@ datamodule:
     stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/'
     class_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv'
   #features: [0,4,5,6,7,13,14,15,17,19,20]
-  batch_size: 2
+  batch_size: 1024
   num_workers: 2
   r: 1.5
   mutual_knn: True
@@ -87,16 +87,32 @@ representation:
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
   checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_513/checkpoints/epoch=199-step=15000.ckpt'
-  path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/9009"
-  stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
+  path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
+  stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/"
+  class_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv'
   num_classes: 2
-  class_names: ["ab", "wt"]
-  folder_to_label:
-    ab: 0
-    wt: 1
-  learning_rate: 1e-3
+  class_names: ["exb", "inh"]
+  MAP:
+    '23P': 0
+    '4P': 0
+    '5P-IT': 0
+    '5P-NP': 0
+    '5P-PT': 0
+    '6P-CT': 0
+    '6P-IT': 0
+    'BC': 1
+    'BPC': 1
+    'MC': 1
+    'NGC': 1
+  folder_to_label: null
+  num_nodes_mean: 27.9
+  num_nodes_std: 31.5
+  num_edges_mean: 0.0
+  num_edges_std: 1.0
+  pooling_strategy: "sum"
+  learning_rate: 1e-2
   weight_decay: 1e-5
-  max_epochs: 500
+  max_epochs: 50
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${classifier.weight_decay}
