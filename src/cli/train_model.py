@@ -14,7 +14,8 @@ from ..data_utils.transforms import (
     FeatureChoice,
     LaplacianPE,
     CentralityEncoding,
-    RandomWalkPE
+    RandomWalkPE,
+    LocalPos
 )
 from ..data_utils.structural_stats import ThesisMacroMetrics
 import torch
@@ -45,6 +46,7 @@ def build_transforms(cfg, mean_x, std_x, mean_edge, std_edge):
     
     transforms.append(NormNoEps(mean=mean_x, std=std_x, eps=cfg.get('eps', 1e-6)))
     transforms.append(EdgeNorm(mean=mean_edge, std=std_edge))
+    transforms.append(LocalPos())
     
     knn_k = cfg.get('knn', -1)
     radius_r = cfg.get('r', -1.0)
@@ -76,7 +78,6 @@ def get_datamodule(cfg):
     
     collate_fn = create_mask_collate_fn(gen_normalize)
     ds = GraphDataSet(path=cfg.dataset.path, transform=None)
-
     datamodule = GraphDataModule(
         ds, 
         cfg.batch_size,

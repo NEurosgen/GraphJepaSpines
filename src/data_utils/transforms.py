@@ -87,6 +87,17 @@ class EdgeNorm(torch.nn.Module):
         data.edge_attr = (data.edge_attr - self.mean)/self.std
         return data
         
+class LocalPos(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self,data):
+        pos = data.pos
+        pos_mean = torch.mean(pos,dim=0)
+        pos_std = torch.std(pos,dim=0).clamp(min=1e-6)
+        pos = (pos - pos_mean)/pos_std
+        data.pos = pos
+        return data
 
 
 
