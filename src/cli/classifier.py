@@ -57,9 +57,10 @@ class ClassifierLightModule(L.LightningModule):
 
     def __init__(self, encoder: nn.Module, classifier: LinearClassifier,
                  learning_rate: float = 1e-3, sigma: float = 1.0,
-                 class_names: list = None, cfg: DictConfig = None):
+                 class_names: list = None, cfg: DictConfig = None,
+                 macro_mean: torch.Tensor = None, macro_std: torch.Tensor = None):
         super().__init__()
-        self.save_hyperparameters(ignore=['encoder', 'classifier'])
+        self.save_hyperparameters(ignore=['encoder', 'classifier', 'macro_mean', 'macro_std'])
 
         self.encoder = encoder
         self.encoder.requires_grad_(False)
@@ -71,6 +72,14 @@ class ClassifierLightModule(L.LightningModule):
         self.optimizer_cfg = cfg.optimizer
         self.scheduler_cfg = cfg.get("scheduler", None)
         self.class_names = class_names
+        
+        # Register buffers for macro normalization
+        if macro_mean is not None and macro_std is not None:
+            self.register_buffer('macro_mean', macro_mean.view(1, -1))
+            self.register_buffer('macro_std', macro_std.view(1, -1))
+        else:
+            self.macro_mean = None
+            self.macro_std = None
 
         self._test_preds = []
         self._test_labels = []
@@ -89,29 +98,14 @@ class ClassifierLightModule(L.LightningModule):
         
         # --- Add Graph Macro-Features ---
         num_graphs = batch.batch.max().item() + 1
-        num_nodes = torch.bincount(batch.batch, minlength=num_graphs).float()
-        
-        if batch.edge_index.numel() > 0:
-            edge_batch = batch.batch[batch.edge_index[0]]
-            num_edges = torch.bincount(edge_batch, minlength=num_graphs).float()
-        else:
-            num_edges = torch.zeros(num_graphs, device=batch.x.device)
-            
-        density = num_edges / (num_nodes * (num_nodes - 1)).clamp(min=1)
-        
-        # Normalize features roughly based on target dataset statistics
-        num_nodes_norm = (num_nodes - 11.0) / 3.5
-        num_edges_norm = (num_edges - 45.0) / 15.0
-        
-        basic_macro = torch.stack([num_nodes_norm, num_edges_norm, density], dim=-1).to(graph_emb.dtype)
         
         # Pull the ThesisMacroMetrics pre-computed during Data Loading
-        # shape of batch.macro_metrics is [num_nodes, 3], but it's identical for all nodes in the same graph.
+        # shape of batch.macro_metrics is [num_nodes, 7], but it's identical for all nodes in the same graph.
         # So we can just pool it with mean or scatter
         if hasattr(batch, 'macro_metrics') and batch.macro_metrics is not None:
             from torch_geometric.utils import scatter
             # macro_metrics is attached at graph-level by the transform, but PyG batching 
-            # might have concatenated it to [num_nodes, 3] or [num_graphs, 3] depending on how it was saved.
+            # might have concatenated it to [num_nodes, 7] or [num_graphs, 7] depending on how it was saved.
             # Assuming it was saved as a graph-level attribute:
             if batch.macro_metrics.size(0) == num_graphs:
                 thesis_macro = batch.macro_metrics.to(graph_emb.dtype)
@@ -119,10 +113,13 @@ class ClassifierLightModule(L.LightningModule):
                 # Fallback if PyG replicated it per-node or something weird
                 thesis_macro = scatter(batch.macro_metrics, batch.batch, dim=0, reduce='mean').to(graph_emb.dtype)
         else:
-            thesis_macro = torch.zeros((num_graphs, 4), dtype=graph_emb.dtype, device=graph_emb.device)
+            thesis_macro = torch.zeros((num_graphs, 7), dtype=graph_emb.dtype, device=graph_emb.device)
+            
+        # Normalize dynamically over dataset parameters
+        if getattr(self, "macro_mean", None) is not None and getattr(self, "macro_std", None) is not None:
+            thesis_macro = (thesis_macro - self.macro_mean) / (self.macro_std + 1e-6)
         
-        macro_features = torch.cat([basic_macro, thesis_macro], dim=-1)
-        graph_emb = torch.cat([graph_emb, macro_features], dim=-1)
+        graph_emb = torch.cat([graph_emb, thesis_macro], dim=-1)
         # --------------------------------
         
         return graph_emb
@@ -275,7 +272,31 @@ class ClassifierLightModule(L.LightningModule):
         return optimizer
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────────
+def compute_macro_stats(dataset, max_samples=2000):
+    """Computes mean and std of macro_metrics dynamically over the dataset."""
+    import random
+    all_macros = []
+    indices = list(range(len(dataset)))
+    if len(indices) > max_samples:
+        indices = random.sample(indices, max_samples)
+        
+    for i in indices:
+        data = dataset[i]
+        if hasattr(data, 'macro_metrics') and data.macro_metrics is not None:
+            mac = data.macro_metrics
+            if mac.dim() == 2:
+                mac = mac.mean(dim=0, keepdim=True)
+            else:
+                mac = mac.view(1, -1)
+            all_macros.append(mac.cpu())
+            
+    if not all_macros:
+        return None, None
+        
+    all_macros = torch.cat(all_macros, dim=0) # [N, 7]
+    macro_mean = all_macros.mean(dim=0, keepdim=True)
+    macro_std = all_macros.std(dim=0, keepdim=True)
+    return macro_mean, macro_std
 
 def _simple_collate(data_list):
     """Collate for classification — no masking, just batch graphs."""
@@ -337,13 +358,25 @@ def main(cfg: DictConfig):
     folder_to_label = dict(cls_cfg.get("folder_to_label", {"ab": 0, "wt": 1}))
     get_class = make_folder_class_getter(folder_to_label)
 
+    # Initialize the basic dataset to get normalizer variables
+    ds = GraphDataSet(
+        path=cls_cfg.path,
+        get_class=get_class,
+        transform=gen_normalize,
+    )
+    
+    print("Computing dynamic macro statistics for dataset...")
+    macro_mean, macro_std = compute_macro_stats(ds)
+
     module = ClassifierLightModule(
         encoder=encoder,
         classifier=classifier_head,
         learning_rate=cls_cfg.get("learning_rate", 1e-3),
         sigma=cls_cfg.get("sigma", 1.0),
         class_names=class_names[:num_classes],
-        cfg=cls_cfg
+        cfg=cls_cfg,
+        macro_mean=macro_mean,
+        macro_std=macro_std
     )
 
 
@@ -351,12 +384,6 @@ def main(cfg: DictConfig):
     mean_x, std_x, mean_edge, std_edge = load_stats(cls_cfg.stats_path)
     transforms = build_transforms(dm_cfg, mean_x, std_x, mean_edge, std_edge)
     gen_normalize = GenNormalize(transforms=transforms, mask_transform=None)
-
-    ds = GraphDataSet(
-        path=cls_cfg.path,
-        get_class=get_class,
-        transform=gen_normalize,
-    )
 
     datamodule = GraphDataModule(
         ds,
