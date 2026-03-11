@@ -48,9 +48,9 @@ datamodule:
     stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/'
     class_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv'
   #features: [0,4,5,6,7,13,14,15,17,19,20]
-  batch_size: 2
+  batch_size: 6
   num_workers: 2
-  r: 1.5
+  r: 0.1
   mutual_knn: True
   mask_ratio: 0.01
   structural_encoding:
@@ -78,7 +78,7 @@ representation:
     - uniformity
 
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
-  r: 1.5
+  r: 0.1
   structural_encoding:
     laplacian_k: 4
     centrality: true
@@ -86,7 +86,7 @@ representation:
 
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
-  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_513/checkpoints/epoch=199-step=15000.ckpt'
+  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_533/checkpoints/epoch=199-step=18000.ckpt'
   path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/9009"
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
   num_classes: 2
@@ -94,11 +94,11 @@ classifier:
   folder_to_label:
     ab: 0
     wt: 1
-  learning_rate: 1e-3
+  learning_rate: 1e-2
   weight_decay: 1e-5
   max_epochs: 500
   optimizer:
-    _target_: torch.optim.AdamW
+    _target_: torch.optim.SGD
     weight_decay: ${classifier.weight_decay}
   scheduler: 
     _target_: torch.optim.lr_scheduler.CosineAnnealingLR

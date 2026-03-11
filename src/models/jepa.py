@@ -45,18 +45,14 @@ class CrossAttentionPredictor(nn.Module):
         Returns:
             pred: [num_target, hidden_dim] - predicted embeddings for target nodes
         """
-        all_pos = torch.cat([context_pos, target_pos], dim=0)
-        pos_mean = all_pos.mean(dim=0, keepdim=True)
-        pos_std = all_pos.std(dim=0, keepdim=True).clamp(min=1e-6)
-        
-        context_pos_norm = (context_pos - pos_mean) / pos_std
-        target_pos_norm = (target_pos - pos_mean) / pos_std
+
+    
         
 
-        context_kv = context_emb + self.pos_embed(context_pos_norm)
+        context_kv = context_emb + self.pos_embed(context_pos)
         
         # Query from target positions
-        target_query = self.pos_embed(target_pos_norm)
+        target_query = self.pos_embed(target_pos)
         
         # Cross-attention (add batch dimension for nn.MultiheadAttention)
         target_query = target_query.unsqueeze(0)
