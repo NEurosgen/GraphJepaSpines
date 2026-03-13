@@ -51,14 +51,22 @@ class ThesisMacroMetrics(nn.Module):
             clustering_coeff = nx.average_clustering(G)
         except:
             clustering_coeff = 0.0
-            
-        # Normalization (Basic clipping/scaling to keep within reasonable ranges for NN)
+
+        #5. Num nodes
+        num_nodes = data.x.shape[0]
+        #6. Num edges 
+        num_edges = data.edge_index.shape[1]/2
+        #7. Density
+        density = num_edges / (num_nodes * (num_nodes - 1))
+        # После этго олжна быть нормаиация по типу BatchNorm либо доабвить глоб статистики в инициаоизацию класса а то как то странно получается
         metrics = [
-            min(max(avg_subgraph_size / 20.0, 0.0), 1.0),    # Approx range [1, 50] -> [0, 1]
-            min(max(avg_intra_dist / 5.0, 0.0), 1.0),        # Approx range [1, 10] -> [0, 1]
-            min(max((modularity + 0.5) / 1.5, 0.0), 1.0),    # Approx bounds [-0.5, 1.0] -> [0, 1]
-            min(max(clustering_coeff, 0.0), 1.0)             # [0, 1]
+            avg_subgraph_size ,
+            avg_intra_dist,
+            modularity,
+            clustering_coeff,
+            num_nodes,
+            num_edges,
+            density,
         ]
-        
         data.macro_metrics = torch.tensor(metrics, dtype=torch.float32, device=device).unsqueeze(0)
         return data

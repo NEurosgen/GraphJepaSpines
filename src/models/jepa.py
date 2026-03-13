@@ -109,7 +109,7 @@ class LeJEPA(nn.Module):
     def _ema(self):
         return
     def encode(self, x, edge_index, edge_attr):
-        return self.encoder(x, edge_index, edge_attr)   
+        return self.encoder(x, edge_index, edge_attr)
     def forward(self, context, target):
         context_enc = self.encoder(context.x, context.edge_index, context.edge_attr)
         target_enc =  self.encoder(target.x, target.edge_index, target.edge_attr)
