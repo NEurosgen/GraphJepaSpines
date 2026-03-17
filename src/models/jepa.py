@@ -4,7 +4,7 @@ from torch import nn
 
 
 from torch_geometric.data import Data
-
+from hydra.utils import instantiate
 
 class CrossAttentionPredictor(nn.Module):
     """
@@ -198,11 +198,16 @@ class GraphJepa(nn.Module):
 import pytorch_lightning as L
 
 class JepaLight(L.LightningModule):
-    def __init__(self, model: GraphJepa, cfg, debug: bool = False, **kwargs):
+    def __init__(self, cfg, network_cfg=None, model: GraphJepa = None, debug: bool = False, **kwargs):
         super().__init__()
         self.save_hyperparameters(ignore=['model'])
         self.debug = debug
-        self.model = model
+        
+        if model is None and network_cfg is not None:
+
+            self.model = instantiate(network_cfg, _recursive_=True)
+        else:
+            self.model = model
         
         # Store cfg parameters for optimizer configuration
         self.learning_rate = cfg.learning_rate

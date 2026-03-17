@@ -140,7 +140,7 @@ def main(cfg: DictConfig):
             'repr_labels': repr_labels,
             'estimator_cfg': {'estimators': list(repr_cfg.estimators)}
         }
-    model_module = JepaLight(model=model, cfg=cfg.training, debug=False, **repr_kwargs)
+    model_module = JepaLight(cfg=cfg.training, network_cfg=cfg.network, model=model, debug=False, **repr_kwargs)
     checkpoint_callback = L.callbacks.ModelCheckpoint(
         monitor="val_loss",
         mode="min",
@@ -148,9 +148,12 @@ def main(cfg: DictConfig):
         filename="jepa-{epoch:02d}-{val_loss:.4f}"
     )
 
+    logger = L.loggers.TensorBoardLogger(save_dir=cfg.get("log_dir", "lightning_logs"), name="jepa")
+
     trainer = L.Trainer(
         **cfg.trainer,
-        #callbacks=[checkpoint_callback],
+        logger=logger,
+        callbacks=[checkpoint_callback],
         deterministic=True
     )
 
