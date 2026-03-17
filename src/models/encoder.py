@@ -208,12 +208,13 @@ class GraphGinEncoder(nn.Module):
         return x
     
 class GraphLatent(nn.Module):
-    def __init__(self, encdoer , macro_mean, macro_std, pooling):
+    def __init__(self, encdoer , macro_mean, macro_std, pooling, sigma=1):
         super().__init__()
         self.encoder = encdoer
         self.macro_mean = macro_mean
         self.macro_std = macro_std
         self.pooling = pooling
+        self.sigma = sigma
     def forward(self,batch):
         with torch.no_grad():
             self.encoder.eval()

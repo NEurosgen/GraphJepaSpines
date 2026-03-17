@@ -64,11 +64,14 @@ def get_class_9009(file_path):
             f"Folder '{folder_name}' not in mapping {mapping}. "
             f"File: {file_path}"
         )
-    return torch.tensor(mapping[file_path], dtype=torch.long)
+    return torch.tensor(mapping[folder_name], dtype=torch.long)
 
 
 def get_class_minnie_65(path):
     pass
+
+def _simple_colate(data_list):
+    return Batch.from_data_list(data_list)
 
 # ─── Main ─────────────────────────────────────────────────────────────────
 
@@ -77,7 +80,7 @@ def main(cfg: DictConfig):
     L.seed_everything(cfg.seed, workers=True)
 
     cls_cfg = cfg.classifier
-
+    
 
     encoder = load_encoder_from_folder(cls_cfg.checkpoint_path)
     encoder.eval()
@@ -87,6 +90,10 @@ def main(cfg: DictConfig):
     embed_dim = cfg.network.encoder.out_channels + 7 # сделать более универсальным
     classifier_head = LinearClassifier(in_channels=embed_dim, num_classes=num_classes)
 
+    dm_cfg = cfg.datamodule
+    mean_x, std_x, mean_edge, std_edge = load_stats(cls_cfg.stats_path)
+    transforms = build_transforms(dm_cfg, mean_x, std_x, mean_edge, std_edge)
+    gen_normalize = GenNormalize(transforms=transforms, mask_transform=None)
 
     ds = GraphDataSet(
         path=cls_cfg.path,
@@ -98,20 +105,15 @@ def main(cfg: DictConfig):
     
     print("Computing dynamic macro statistics for dataset...")
     macro_mean, macro_std = compute_macro_stats(ds)
-    encoder_graph =  GraphLatent(encdoer=encoder,macro_mean=macro_mean,macro_std=macro_std,pooling=global_add_pool)
+    encoder_graph =  GraphLatent(encdoer=encoder,macro_mean=macro_mean,macro_std=macro_std,pooling=global_add_pool,sigma=cls_cfg.sigma)
     module = ClassifierLightModule(
         cfg=cls_cfg,
         encoder_graph = encoder_graph,
         learning_rate=cls_cfg.get("learning_rate", 1e-3),
-        macro_mean=macro_mean,
-        macro_std=macro_std
+        classifier=classifier_head
     )
 
 
-    dm_cfg = cfg.datamodule
-    mean_x, std_x, mean_edge, std_edge = load_stats(cls_cfg.stats_path)
-    transforms = build_transforms(dm_cfg, mean_x, std_x, mean_edge, std_edge)
-    gen_normalize = GenNormalize(transforms=transforms, mask_transform=None)
 
     datamodule = GraphDataModule(
         ds,
@@ -119,6 +121,7 @@ def main(cfg: DictConfig):
         num_workers=dm_cfg.num_workers,
         seed=dm_cfg.seed,
         ratio=dm_cfg.ratio,
+        collate_fn=_simple_colate
     )
 
 
