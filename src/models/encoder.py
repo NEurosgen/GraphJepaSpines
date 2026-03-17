@@ -206,3 +206,22 @@ class GraphGinEncoder(nn.Module):
             x = self.act(x)
         x = self.layers[-1](x, edge_index, edge_weight)
         return x
+    
+class GraphLatent(nn.Module):
+    def __init__(self, encdoer , macro_mean, macro_std, pooling):
+        super().__init__()
+        self.encoder = encdoer
+        self.macro_mean = macro_mean
+        self.macro_std = macro_std
+        self.pooling = pooling
+    def forward(self,batch):
+        with torch.no_grad():
+            self.encoder.eval()
+            edge_attr = batch.edge_attr
+            edge_attr = torch.exp(-edge_attr ** 2 / self.sigma ** 2)  # стоит унифицировать с jepa 
+            node_emb = self.encoder(batch.x, batch.edge_index, edge_attr)
+            graph_emb = self.pooling(node_emb, batch.batch)
+            thesis_macro = batch.macro_metrics
+            thesis_macro = (thesis_macro - self.macro_mean.to(thesis_macro.device)) / (self.macro_std.to(thesis_macro.device) + 1e-6)
+            graph_emb = torch.cat([graph_emb, thesis_macro], dim=-1)
+        return graph_emb

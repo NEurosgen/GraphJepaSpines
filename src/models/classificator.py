@@ -41,63 +41,26 @@ class ClassifierLightModule(L.LightningModule):
     to graph-level embeddings, then passed through a linear head.
     """
 
-    def __init__(self, cfg, encoder_path: str = None, embed_dim: int = None, num_classes: int = 2,
-                 encoder: nn.Module = None, classifier: nn.Module = None,
-                 learning_rate: float = 1e-3, sigma: float = 1.0,
-                 class_names: list = None, macro_mean=None, macro_std=None):
+    def __init__(self, cfg, encoder_graph: nn.Module = None, classifier: nn.Module = None,
+                 learning_rate: float = 1e-3):
         super().__init__()
         self.save_hyperparameters(ignore=['encoder', 'classifier'])
-
-        if encoder is None and encoder_path is not None:
-            from src.models.loader_model import load_encoder_from_folder
-            self.encoder = load_encoder_from_folder(encoder_path)
-            self.encoder.eval()
-            self.encoder.requires_grad_(False)
-        else:
-            self.encoder = encoder
-            if self.encoder is not None:
-                self.encoder.eval()
-                self.encoder.requires_grad_(False)
-
-        if classifier is None and embed_dim is not None:
-            self.classifier = LinearClassifier(in_channels=embed_dim, num_classes=num_classes)
-        else:
-            self.classifier = classifier
-
-        self.sigma = sigma
+        self.encoder_graph = encoder_graph
+        self.encoder_graph.requires_grad_ = False
+        self.classifier = classifier
         self.learning_rate = learning_rate
         self.loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([1., 1.0]),reduction='none')
         self.optimizer_cfg = cfg.optimizer
         self.scheduler_cfg = cfg.get("scheduler", None)
-        self.class_names = class_names
-        self.pooling = global_add_pool
         self._test_preds = []
         self._test_labels = []
 
         self._test_embeddings = []
         self._test_segment_ids = []
         
-        self.macro_mean = macro_mean
-        self.macro_std = macro_std
-
     def _encode_graph(self, batch) -> torch.Tensor:
         """Encode graph batch → graph-level embedding."""
-        self.encoder.eval() # Prevent Lightning from putting it in train mode
-        edge_attr = batch.edge_attr
-        if edge_attr is not None:
-            edge_attr = torch.exp(-edge_attr ** 2 / self.sigma ** 2)
-        node_emb = self.encoder(batch.x, batch.edge_index, edge_attr)
-        graph_emb = self.pooling(node_emb, batch.batch)
-        
-        # --- Add Graph Macro-Features ---
-        if hasattr(batch, 'macro_metrics') and batch.macro_metrics is not None:
-            thesis_macro = batch.macro_metrics
-            if thesis_macro.dim() == 1:
-                thesis_macro = thesis_macro.unsqueeze(0)
-            if self.macro_mean is not None and self.macro_std is not None:
-                thesis_macro = (thesis_macro - self.macro_mean.to(thesis_macro.device)) / (self.macro_std.to(thesis_macro.device) + 1e-6)
-            graph_emb = torch.cat([graph_emb, thesis_macro], dim=-1)
-        # --------------------------------
+        graph_emb = self.encoder_graph(batch)
         
         return graph_emb
 
