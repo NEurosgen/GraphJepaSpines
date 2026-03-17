@@ -198,21 +198,18 @@ class GraphJepa(nn.Module):
 import pytorch_lightning as L
 
 class JepaLight(L.LightningModule):
-    def __init__(self, cfg, network_cfg=None, model: GraphJepa = None, debug: bool = False, **kwargs):
+    def __init__(self, cfg, model: GraphJepa = None, debug: bool = False, **kwargs):
         super().__init__()
-        self.save_hyperparameters(ignore=['model'])
+        self.save_hyperparameters("cfg")
         self.debug = debug
-        
-        if model is None and network_cfg is not None:
-
-            self.model = instantiate(network_cfg, _recursive_=True)
-        else:
-            self.model = model
+        self.cfg = cfg.training
+     
+        self.model = model
         
         # Store cfg parameters for optimizer configuration
-        self.learning_rate = cfg.learning_rate
-        self.optimizer_cfg = cfg.optimizer
-        self.scheduler_cfg = cfg.get('scheduler', None)
+        self.learning_rate = self.cfg.learning_rate
+        self.optimizer_cfg = self.cfg.optimizer
+        self.scheduler_cfg = self.cfg.get('scheduler', None)
         self.sigma = 1
         
         # Representation estimation config
