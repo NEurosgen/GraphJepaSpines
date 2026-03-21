@@ -1,12 +1,13 @@
 import torch
 import torch.nn as nn
 from torch_geometric.data import Batch
-from torch_geometric.nn import global_add_pool
-from torch_geometric.explain import Explainer, GNNExplainer
-from torch_geometric.utils import scatter
-
+import matplotlib.pyplot as plt
+import torch.nn.functional as F
+from collections import defaultdict
+import numpy as np
 import hydra
 from omegaconf import DictConfig
+import os
 
 from src.data_utils.datamodule import GraphDataModule, GraphDataSet, make_folder_class_getter
 from src.cli.train_model import load_stats, build_transforms
@@ -14,38 +15,11 @@ from src.models.loader_model import load_encoder_from_folder
 from src.models.classificator import ClassifierLightModule, LinearClassifier
 from src.data_utils.transforms import GenNormalize
 from src.data_utils.stats import compute_macro_stats, extract_macro_features
-
-
-def feature_name(idx):
-    names = ['head_area',
-    'head_bbox_max',
-    'head_bbox_middle',
-    'head_bbox_min',
-    'head_skeletal_length',
-    'head_volume',
-    'head_width_ray',
-    'head_width_ray_80_perc',
-    'neck_area',
-    'neck_bbox_max',
-    'neck_bbox_middle',
-    'neck_bbox_min',
-    'neck_skeletal_length',
-    'neck_volume',
-    'neck_width_ray',
-    'neck_width_ray_80_perc',
-    'spine_bbox_volume',
-    'spine_n_faces',
-    'spine_sdf_mean',
-    'spine_skeletal_length',
-    'spine_volume']
-
-    if idx >= len(names):
-        return f"Feature {idx}"
-    return names[idx]
-
+from torch_geometric.nn import global_add_pool
+from torch_geometric.utils import scatter
 
 class GraphExplainerWrapper(nn.Module):
-    def __init__(self, global_features, jepa_model, classifier, sigma=1.0):
+    def __init__(self, jepa_model, classifier, sigma=1.0):
         super().__init__()
         self.graph_jepa = jepa_model
         for param in self.graph_jepa.parameters():
@@ -56,15 +30,11 @@ class GraphExplainerWrapper(nn.Module):
         for param in self.classifier.parameters():
             param.requires_grad = False
         self.classifier.eval()
-        
         self.sigma = sigma
-        self.register_buffer('global_features', global_features.view(1, -1))
 
-    def forward(self, x, edge_index, edge_attr=None, batch=None, **kwargs):
+    def forward(self, x, edge_index, edge_attr=None, batch=None, global_features=None, **kwargs):
         # ─── Edge Attribute Transformation (Consistent with GraphLatent) ───
         if edge_attr is not None and edge_attr.numel() > 0:
-            # Note: For GNNExplainer, we might not have a full batch object, 
-            # so we assume single graph if batch is None.
             if batch is None:
                 edge_batch = torch.zeros(edge_index.size(1), dtype=torch.long, device=edge_index.device)
             else:
@@ -81,18 +51,15 @@ class GraphExplainerWrapper(nn.Module):
         if batch is None:
             batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
             
-        # Add pooling for JEPA node embeddings
         graph_emb_pooled = global_add_pool(graph_emb, batch)
         
-        global_feats = self.global_features.expand(graph_emb_pooled.size(0), -1)
+        if global_features is None:
+            raise ValueError("global_features must be provided")
+            
+        global_feats = global_features.expand(graph_emb_pooled.size(0), -1)
         combined_features = torch.cat([graph_emb_pooled, global_feats], dim=-1)
         
         return self.classifier(combined_features)
-
-
-def _simple_collate(data_list):
-    """Collate for classification — no masking, just batch graphs."""
-    return Batch.from_data_list(data_list)
 
 
 def _find_latest_checkpoint(path):
@@ -124,7 +91,7 @@ def main(cfg: DictConfig):
 
     if not path_to_classifier_dir or not path_to_lejepa_dir:
         print("Warning: Missing checkpoint paths in config. Falling back to default log locations...")
-        path_to_classifier_dir = "lightning_logs/classifier/version_65"
+        path_to_classifier_dir = "lightning_logs/classifier/version_64"
         path_to_lejepa_dir = "lightning_logs/jepa/version_32"
 
     path_to_classifier = _find_latest_checkpoint(path_to_classifier_dir)
@@ -135,6 +102,8 @@ def main(cfg: DictConfig):
 
     # Load statistics and transforms
     mean_x, std_x, mean_edge, std_edge = load_stats(cls_cfg.stats_path)
+    std_x_data = std_x.squeeze().cpu() 
+    
     transforms = build_transforms(dm_cfg, mean_x, std_x, mean_edge, std_edge)
     gen_normalize = GenNormalize(transforms=transforms, mask_transform=None)
 
@@ -142,18 +111,13 @@ def main(cfg: DictConfig):
     get_class = make_folder_class_getter(folder_to_label)
 
     # Dataset initialization
-    ds = GraphDataSet(
-        path=cls_cfg.path,
-        get_class=get_class,
-        transform=gen_normalize,
-    )
+    ds = GraphDataSet(path=cls_cfg.path, get_class=get_class, transform=gen_normalize)
 
-    # Initialize models using standardized loader
+    # Initialize models
     encoder = load_encoder_from_folder(path_to_lejepa)
     
     num_classes = cls_cfg.get("num_classes", 2)
-    # Dynamically determine dimensions if possible, or use config
-    embed_dim = cfg.network.encoder.out_channels + 7 
+    embed_dim = cfg.network.encoder.out_channels + 7
     classifier_head = LinearClassifier(in_channels=embed_dim, num_classes=num_classes)
     
     classifier_module = ClassifierLightModule.load_from_checkpoint(
@@ -170,57 +134,87 @@ def main(cfg: DictConfig):
     # Calculate dataset macro stats for dynamic normalization
     print("Computing dynamic macro statistics for dataset...")
     macro_mean, macro_std = compute_macro_stats(ds)
-
-    # Select a sample graph for explanation
-    sample_idx = cls_cfg.get("explain_sample_idx", 0)
-    data = ds[sample_idx].to(device)
-    
-    # Extract macro features (global_features) dynamically normalized
-    global_feats = extract_macro_features(data, macro_mean, macro_std)
-
     model_wrapper = GraphExplainerWrapper(
-        global_features=global_feats, 
         jepa_model=encoder, 
         classifier=classifier_module.classifier,
         sigma=cls_cfg.get("sigma", 1.0)
     ).to(device)
-    
-    # Configure GNN explainer
-    explainer = Explainer(
-        model=model_wrapper,
-        algorithm=GNNExplainer(epochs=100),
-        explanation_type='model',
-        node_mask_type='attributes',   # compute node attribute importance
-        edge_mask_type='object',       # compute edge importance
-        model_config=dict(
-            mode='multiclass_classification',
-            task_level='graph',
-            return_type='raw',  # LinearClassifier returns raw logits
-        ),
-    )
 
-    # Provide data arguments to explain
-    print(f"Explaining sample {sample_idx}...")
-    explanation = explainer(x=data.x, edge_index=data.edge_index, edge_attr=data.edge_attr)
-    print("Explanation computed successfully!")
+    feature_ig_sum = defaultdict(lambda: 0.0)
+    samples_count = defaultdict(int)
+    num_samples_to_explain = cls_cfg.get("num_samples_to_explain", 50)
     
-    import os
+    m_steps = 50 # Дискретизация интеграла Римана
+    
+    print(f"Computing Integrated Gradients for {num_samples_to_explain} samples...")
+    for i in range(min(len(ds), num_samples_to_explain)):
+        data = ds[i].to(device)
+        global_feats = extract_macro_features(data, macro_mean, macro_std)
+        true_class = data.y.item() if hasattr(data, 'y') else 0 
+        target_class = 1 - true_class 
+        
+        # Базовое состояние для нормализованных данных (среднее по датасету)
+        baseline_x = torch.zeros_like(data.x, device=device)
+        integrated_grads = torch.zeros_like(data.x, device=device)
+        
+        # Интегрирование градиентов вдоль пути
+        for k in range(1, m_steps + 1):
+            alpha = k / m_steps
+            interpolated_x = baseline_x + alpha * (data.x - baseline_x)
+            interpolated_x.requires_grad_()
+            
+            model_wrapper.zero_grad()
+            
+            logits = model_wrapper(
+                x=interpolated_x, 
+                edge_index=data.edge_index, 
+                edge_attr=data.edge_attr, 
+                global_features=global_feats
+            )
+            
+            target_logit = logits[0, target_class]
+            target_logit.backward()
+            
+            integrated_grads += interpolated_x.grad
+            
+        # Усреднение градиентов и умножение на вектор отклонения (x - baseline)
+        avg_grads = integrated_grads / m_steps
+        ig = (data.x - baseline_x) * avg_grads
+        
+        # Агрегация абсолютной важности по узлам графа -> [num_features]
+        node_ig_importance = ig.abs().mean(dim=0).cpu()
+        
+        # Денормализация для визуализации (приведение к реальным масштабам)
+        std_padded = torch.ones_like(node_ig_importance)
+        num_stats = min(std_x_data.size(0), node_ig_importance.size(0))
+        std_padded[:num_stats] = std_x_data[:num_stats]
+        
+        node_ig_real = node_ig_importance * std_padded
+        
+        feature_ig_sum[true_class] += node_ig_real
+        samples_count[true_class] += 1
+        
     os.makedirs("explanations", exist_ok=True)
     
-    # 1. Построить график важности топ-20 признаков узлов
-    explanation.visualize_feature_importance(
-        top_k=20, 
-        path="explanations/feature_importance.png"
-    )
-    print("Feature importance graph saved to: explanations/feature_importance.png")
-    
-    # 2. Визуализация графа с подсветкой важных элементов
-    if data.edge_index.shape[1] > 0:
-        explanation.visualize_graph(
-            path="explanations/graph_explanation.png"
-        )
-        print("Graph visualization saved to: explanations/graph_explanation.png")
-
+    for cls_idx in feature_ig_sum.keys():
+        if samples_count[cls_idx] == 0:
+            continue
+            
+        mean_ig = (feature_ig_sum[cls_idx] / samples_count[cls_idx]).numpy()
+        
+        plt.figure(figsize=(12, 8))
+        indices = np.argsort(mean_ig)[-20:] 
+        plt.barh(range(len(indices)), mean_ig[indices], align='center', color='cyan')
+        plt.yticks(range(len(indices)), [f"Feature {idx}" for idx in indices])
+        
+        plt.xlabel('Integrated Gradient Attribution (Real Units Scale)')
+        plt.title(f'IG Feature Attribution for shifting class {cls_idx} -> {1 - cls_idx}')
+        plt.tight_layout()
+        
+        save_path = f"explanations/ig_real_units_class_{cls_idx}.png"
+        plt.savefig(save_path)
+        plt.close()
+        print(f"IG attribution graph for class {cls_idx} saved to: {save_path}")
 
 if __name__ == "__main__":
     main()

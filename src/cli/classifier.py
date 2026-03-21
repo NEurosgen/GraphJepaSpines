@@ -27,32 +27,7 @@ from src.models.classificator import ClassifierLightModule,LinearClassifier
 from src.models.loader_model import load_encoder_from_folder
 from src.models.encoder import GraphLatent
 
-def compute_macro_stats(dataset, max_samples=2000):
-    """Computes mean and std of macro_metrics dynamically over the dataset."""
-    import random
-    all_macros = []
-    indices = list(range(len(dataset)))
-    if len(indices) > max_samples:
-        indices = random.sample(indices, max_samples)
-        
-    for i in indices:
-        data = dataset[i]
-        if hasattr(data, 'macro_metrics') and data.macro_metrics is not None:
-            mac = data.macro_metrics
-            if mac.dim() == 1:
-                mac = mac.unsqueeze(0)
-            elif mac.dim() == 2 and mac.size(0) > 1:
-                mac = mac.mean(dim=0, keepdim=True)
-            
-            all_macros.append(mac.cpu())
-            
-    if not all_macros:
-        return None, None
-        
-    all_macros = torch.cat(all_macros, dim=0) # [N_samples, D]
-    macro_mean = all_macros.mean(dim=0, keepdim=True)
-    macro_std = all_macros.std(dim=0, keepdim=True)
-    return macro_mean, macro_std
+from ..data_utils.stats import compute_macro_stats
 
 
 def get_class_9009(file_path):

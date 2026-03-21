@@ -86,6 +86,7 @@ representation:
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
   checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa/version_32'
+  classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/classifier/version_64'
   path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/9009_prepared"
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
   num_classes: 2
@@ -97,10 +98,11 @@ classifier:
   weight_decay: 1e-5
   max_epochs: 500
   optimizer:
-    _target_: torch.optim.SGD
+    _target_: torch.optim.SGDs
     weight_decay: ${classifier.weight_decay}
   scheduler: 
     _target_: torch.optim.lr_scheduler.CosineAnnealingLR
     T_max: ${classifier.max_epochs}
 
   sigma: 1.0
+  explain_sample_idx: 5
