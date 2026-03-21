@@ -11,8 +11,10 @@ class ThesisMacroMetrics(nn.Module):
     2. Average Intra-cluster Distance (Average shortest path within components)
     3. Modularity (using Louvain)
     4. Average Clustering Coefficient
-    
-    Stores the result in data.macro_metrics (Tensor of shape [1, 4])
+    5. Num nodes
+    6. Num edges 
+    7. Density (for undirected graphs: edges / (nodes * (nodes - 1) / 2))
+    Stores the result in data.macro_metrics (Tensor of shape [1, 7])
     """
     def __init__(self):
         super().__init__()
@@ -56,8 +58,11 @@ class ThesisMacroMetrics(nn.Module):
         num_nodes = data.x.shape[0]
         #6. Num edges 
         num_edges = data.edge_index.shape[1]/2
-        #7. Density
-        density = num_edges / (num_nodes * (num_nodes - 1))
+        #7. Density (for undirected graphs: edges / (nodes * (nodes - 1) / 2))
+        if num_nodes > 1:
+            density = (2 * num_edges) / (num_nodes * (num_nodes - 1))
+        else:
+            density = 0.0
         # После этго олжна быть нормаиация по типу BatchNorm либо доабвить глоб статистики в инициаоизацию класса а то как то странно получается
         metrics = [
             avg_subgraph_size ,

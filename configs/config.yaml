@@ -7,14 +7,14 @@ network:
     _target_: src.models.encoder.GraphGinEncoder
     in_channels: 31  # Base 21 + Laplacian 4 + Centrality 1 + RW 5 = 31
     out_channels: 32
-    num_layers: 2
+    num_layers: 3
   predictor:
     _target_: src.models.jepa.CrossAttentionPredictor
     hidden_dim: 32
     pos_dim: 3
     num_heads: 2
     dropout: 0.05
-  lambd: 0.01
+  lambd: 0.05
   num_slices: 32
   ema: 0.996
   
@@ -23,7 +23,7 @@ network:
 training:
   learning_rate: 1e-2
   weight_decay: 1e-5
-  max_epochs: 200
+  max_epochs: 400
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
@@ -44,15 +44,14 @@ datamodule:
   _target_: src.data_utils.datamodule.GraphDataModule
   dataset:
     _target_: src.data_utils.datamodule.GraphDataSet
-    path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset"
+    path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_prepared"
     stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/'
     class_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv'
   #features: [0,4,5,6,7,13,14,15,17,19,20]
-  batch_size: 1024
+  batch_size: 2
   num_workers: 2
-  r: 1.5
-  mutual_knn: True
-  mask_ratio: 0.01
+  r: 1
+  mask_ratio: 0.02
   structural_encoding:
     laplacian_k: 4       # 4 features
     centrality: true     # 1 feature
@@ -64,7 +63,7 @@ datamodule:
 
 representation:
   enabled: true
-  batch_size: 32
+  batch_size: 2
   datasets:
     - path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_ab"
       label: 0
@@ -78,7 +77,7 @@ representation:
     - uniformity
 
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
-  r: 100
+  r: 1
   structural_encoding:
     laplacian_k: 4
     centrality: true
@@ -86,8 +85,8 @@ representation:
 
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
-  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa/version_5'
-  path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/9009"
+  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa/version_26'
+  path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/9009_prepared"
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
   num_classes: 2
   class_names: ["ab", "wt"]

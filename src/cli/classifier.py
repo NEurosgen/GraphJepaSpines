@@ -39,16 +39,19 @@ def compute_macro_stats(dataset, max_samples=2000):
         data = dataset[i]
         if hasattr(data, 'macro_metrics') and data.macro_metrics is not None:
             mac = data.macro_metrics
-            if mac.dim() == 2:
+            # Ensure mac is [1, D]
+            if mac.dim() == 1:
+                mac = mac.unsqueeze(0)
+            elif mac.dim() == 2 and mac.size(0) > 1:
+                # If macro metrics are somehow per-node, average them to get graph-level
                 mac = mac.mean(dim=0, keepdim=True)
-            else:
-                mac = mac.view(1, -1) #пачему
+            
             all_macros.append(mac.cpu())
             
     if not all_macros:
         return None, None
         
-    all_macros = torch.cat(all_macros, dim=0) # [N, 7]
+    all_macros = torch.cat(all_macros, dim=0) # [N_samples, D]
     macro_mean = all_macros.mean(dim=0, keepdim=True)
     macro_std = all_macros.std(dim=0, keepdim=True)
     return macro_mean, macro_std
@@ -87,9 +90,7 @@ def main(cfg: DictConfig):
     encoder.requires_grad_(False)
    
     num_classes = cls_cfg.get("num_classes", 2)
-    embed_dim = cfg.network.encoder.out_channels + 7 # сделать более универсальным
-    classifier_head = LinearClassifier(in_channels=embed_dim, num_classes=num_classes)
-
+    
     dm_cfg = cfg.datamodule
     mean_x, std_x, mean_edge, std_edge = load_stats(cls_cfg.stats_path)
     transforms = build_transforms(dm_cfg, mean_x, std_x, mean_edge, std_edge)
@@ -101,11 +102,18 @@ def main(cfg: DictConfig):
         transform=gen_normalize,
     )
                 
-
-    
     print("Computing dynamic macro statistics for dataset...")
     macro_mean, macro_std = compute_macro_stats(ds)
-    encoder_graph =  GraphLatent(encdoer=encoder,macro_mean=macro_mean,macro_std=macro_std,pooling=global_add_pool,sigma=cls_cfg.sigma)
+    
+    # Dynamically determine embedding dimension
+    num_macro = macro_mean.shape[1] if macro_mean is not None else 0
+    embed_dim = cfg.network.encoder.out_channels + num_macro
+    print(f"Embedding dimension: {embed_dim} (Encoder: {cfg.network.encoder.out_channels}, Macro: {num_macro})")
+    
+    classifier_head = LinearClassifier(in_channels=embed_dim, num_classes=num_classes)
+    
+    encoder_graph = GraphLatent(encoder=encoder, macro_mean=macro_mean, macro_std=macro_std, pooling=global_add_pool, sigma=cls_cfg.get("sigma", 1.0))
+    
     module = ClassifierLightModule(
         cfg=cls_cfg,
         encoder_graph = encoder_graph,

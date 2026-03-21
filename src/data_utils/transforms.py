@@ -401,3 +401,27 @@ class GenNormalize(torch.nn.Module):
             return context, target
         return out
 
+
+class ConcatStructuralPE(torch.nn.Module):
+    """
+    Конкатенирует предварительно рассчитанные структурные фичи
+    (Laplacian, Centrality, RandomWalk) к data.x
+    без их перевычисления.
+    """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, data):
+        pe_list = []
+     
+        pe_list.append(data.laplacian_pe.to(data.x.device))
+
+        pe_list.append(data.centrality_pe.to(data.x.device))
+        pe_list.append(data.random_walk_pe.to(data.x.device))
+            
+        if len(pe_list) > 0:
+            pe_tensor = torch.cat(pe_list, dim=1)
+            data.x = torch.cat([data.x, pe_tensor], dim=1)
+            
+        return data
+

@@ -29,25 +29,27 @@ class GraphDataSet(Dataset):
     def len(self):
         return len(self.file_paths)
     
-    def _load_to_cache(self, idx):
+    def _load_file(self, idx):
         file_path = self.file_paths[idx]
         out = torch.load(file_path, weights_only=False)
         seg_id = int(re.findall(r'\d+', file_path.stem)[0])
         out.segment_id = torch.tensor(seg_id, dtype=torch.long)
         if self.get_class is not None:
             out.y = self.get_class(file_path)
-        self.cache[idx] = out
         return out
 
     def get(self, idx):
         if self.save_cache and idx in self.cache:
-            out = self.cache[idx]
-        else:
-            out = self._load_to_cache(idx)
+            return self.cache[idx]
             
-        if self.my_transform is not None:
-            return self.my_transform(out)
+        out = self._load_file(idx)
         
+        if self.my_transform is not None:
+            out = self.my_transform(out)
+            
+        if self.save_cache:
+            self.cache[idx] = out
+            
         return out
 
 
@@ -66,6 +68,15 @@ class GraphDataModule(pl.LightningDataModule):
         self.test_ds = None
 
     def setup(self, stage: Optional[str] = None):
+        # Разогрев кэша в главном потоке: если save_cache=True, мы один раз переводим все графы в RAM
+        # с примененными статическими трансформациями. Когда DataLoader запустит num_workers, 
+        # все воркеры получат доступ к уже заполненному кэшу в RAM.
+        if self.dataset.save_cache:
+            import logging
+            logging.info("Pre-loading dataset into RAM cache...")
+            for i in range(len(self.dataset)):
+                _ = self.dataset[i]
+                
         indices = torch.arange(len(self.dataset))
         generator = torch.Generator().manual_seed(self.seed)
         perm = torch.randperm(len(self.dataset), generator=generator)

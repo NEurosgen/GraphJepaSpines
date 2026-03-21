@@ -266,8 +266,10 @@ class JepaLight(L.LightningModule):
         for batch in self.repr_dataloader:
             batch = batch.to(self.device)
             edge_attr = batch.edge_attr
-            if edge_attr is not None:
-                edge_attr = torch.exp(-edge_attr**2 / self.sigma**2)
+            if edge_attr is not None and edge_attr.numel() > 0:
+                # Shift by min if normalized (centered around non-zero) to ensure positive distances
+                edge_attr = edge_attr - edge_attr.min() 
+                edge_attr = torch.exp(-edge_attr**2 / (self.sigma**2 + 1e-6))
             emb = self.encode(batch.x, batch.edge_index, edge_attr)
             if hasattr(batch, 'batch') and batch.batch is not None:
                 graph_emb = global_add_pool(emb, batch.batch)
@@ -297,8 +299,14 @@ class JepaLight(L.LightningModule):
  
     def training_step(self, batch):
         context_batch, target_batch = batch
-        context_batch.edge_attr = torch.exp(-context_batch.edge_attr**2 / self.sigma**2)
-        target_batch.edge_attr = torch.exp(-target_batch.edge_attr**2 / self.sigma**2)
+        
+        # Apply RBF kernel with shift to handle normalized (centered) edge_attr
+        # Only apply if edges exist
+        if context_batch.edge_attr is not None and context_batch.edge_attr.numel() > 0:
+            context_batch.edge_attr = torch.exp(-(context_batch.edge_attr - context_batch.edge_attr.min())**2 / (self.sigma**2 + 1e-6))
+        if target_batch.edge_attr is not None and target_batch.edge_attr.numel() > 0:
+            target_batch.edge_attr = torch.exp(-(target_batch.edge_attr - target_batch.edge_attr.min())**2 / (self.sigma**2 + 1e-6))
+        
         loss = self.model(context_batch,target_batch)
 
  
@@ -310,8 +318,13 @@ class JepaLight(L.LightningModule):
     
     def validation_step(self, batch):
         context_batch, target_batch = batch
-        context_batch.edge_attr = torch.exp(-context_batch.edge_attr**2 / self.sigma**2)
-        target_batch.edge_attr = torch.exp(-target_batch.edge_attr**2 / self.sigma**2)
+        
+        # Consistent with training_step
+        if context_batch.edge_attr is not None and context_batch.edge_attr.numel() > 0:
+            context_batch.edge_attr = torch.exp(-(context_batch.edge_attr - context_batch.edge_attr.min())**2 / (self.sigma**2 + 1e-6))
+        if target_batch.edge_attr is not None and target_batch.edge_attr.numel() > 0:
+            target_batch.edge_attr = torch.exp(-(target_batch.edge_attr - target_batch.edge_attr.min())**2 / (self.sigma**2 + 1e-6))
+        
         loss = self.model(context_batch,target_batch)
         self.log("val_loss", loss, prog_bar=True)
         if self.debug:

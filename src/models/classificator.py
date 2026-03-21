@@ -20,6 +20,8 @@ class LinearClassifier(nn.Module):
         super().__init__()
         self.head = nn.Sequential(
             nn.LayerNorm(in_channels),
+            nn.Linear(in_channels, in_channels),
+            nn.ReLU(),
             nn.Dropout(0.3), # Strong dropout for regularization on 41 training samples
             nn.Linear(in_channels, in_channels),
             nn.ReLU(),

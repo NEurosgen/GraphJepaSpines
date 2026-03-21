@@ -9,13 +9,10 @@ from ..data_utils.transforms import (
     create_mask_collate_fn,
     NormNoEps,
     EdgeNorm,
-    GraphPruning,
     MaskData,
     FeatureChoice,
-    LaplacianPE,
-    CentralityEncoding,
-    RandomWalkPE,
-    LocalPos
+    LocalPos,
+    ConcatStructuralPE
 )
 from ..data_utils.structural_stats import ThesisMacroMetrics
 import torch
@@ -24,10 +21,10 @@ torch.set_float32_matmul_precision('high')
 
 
 def load_stats(path):
-    mean_x = torch.load(path + "means.pt")
-    std_x = torch.load(path + "stds.pt")
-    mean_edge = torch.load(path + "mean_edge.pt")
-    std_edge = torch.load(path + "std_edge.pt")
+    mean_x = torch.load(path + "means.pt", map_location='cpu')
+    std_x = torch.load(path + "stds.pt", map_location='cpu')
+    mean_edge = torch.load(path + "mean_edge.pt", map_location='cpu')
+    std_edge = torch.load(path + "std_edge.pt", map_location='cpu')
     return mean_x, std_x, mean_edge, std_edge
 
 
@@ -47,24 +44,12 @@ def build_transforms(cfg, mean_x, std_x, mean_edge, std_edge):
     transforms.append(NormNoEps(mean=mean_x, std=std_x, eps=cfg.get('eps', 1e-6)))
     transforms.append(EdgeNorm(mean=mean_edge, std=std_edge))
     transforms.append(LocalPos())
-    
-    knn_k = cfg.get('knn', -1)
-    radius_r = cfg.get('r', -1.0)
-    if knn_k > 0 or radius_r > 0.0:
-        transforms.append(GraphPruning(k=knn_k, r=radius_r, mutual=cfg.get('mutual_knn', False)))
-    
-    # Structural / Positional Encodings (after graph pruning, before masking)
-    
+
     # --- Add Thesis Macro Metrics ---
     transforms.append(ThesisMacroMetrics())
     
-    se_cfg = cfg.get('structural_encoding', {})
-    if se_cfg.get('laplacian_k', 0) > 0:
-        transforms.append(LaplacianPE(k=se_cfg.laplacian_k))
-    if se_cfg.get('centrality', False):
-        transforms.append(CentralityEncoding())
-    if se_cfg.get('random_walk_steps', 0) > 0:
-        transforms.append(RandomWalkPE(walk_length=se_cfg.random_walk_steps))
+    # Пристыковываем предрассчитанные структурные признаки (PE)
+    transforms.append(ConcatStructuralPE())
     
     return transforms
 
@@ -73,11 +58,20 @@ def get_datamodule(cfg):
     mean_x, std_x, mean_edge, std_edge = load_stats(cfg.dataset.stats_path)
     
     transforms = build_transforms(cfg, mean_x, std_x, mean_edge, std_edge)
-    mask_transform = MaskData(mask_ratio=cfg.mask_ratio)
-    gen_normalize = GenNormalize(transforms=transforms, mask_transform=mask_transform)
     
-    collate_fn = create_mask_collate_fn(gen_normalize)
-    ds = GraphDataSet(path=cfg.dataset.path, transform=None)
+    # 1. Статические трансформации (однажды для каждого графа)
+    static_transform = GenNormalize(transforms=transforms, mask_transform=None)
+    
+    # 2. Динамическая маска (постоянно генерируется даталоадером в collate_fn)
+    mask_transform = MaskData(mask_ratio=cfg.mask_ratio)
+    dyn_transform = GenNormalize(transforms=[], mask_transform=mask_transform)
+    
+    collate_fn = create_mask_collate_fn(dyn_transform)
+    
+    # Считываем настройку кэширования из конфига или по умолчанию True
+    save_cache = cfg.dataset.get('save_cache', True)
+    
+    ds = GraphDataSet(path=cfg.dataset.path, transform=static_transform, save_cache=save_cache)
     datamodule = GraphDataModule(
         ds, 
         cfg.batch_size,
@@ -131,16 +125,16 @@ def main(cfg: DictConfig):
     L.seed_everything(cfg.seed, workers=True)
     model = instantiate(cfg.network, _recursive_=True)
 
-    repr_kwargs = {}
-    if cfg.get('representation', {}).get('enabled', False):
-        repr_cfg = cfg.representation
-        repr_dl, repr_labels = create_repr_dataloader(repr_cfg)
-        repr_kwargs = {
-            'repr_dl': repr_dl,
-            'repr_labels': repr_labels,
-            'estimator_cfg': {'estimators': list(repr_cfg.estimators)}
-        }
-    model_module = JepaLight(cfg=cfg, model=model, debug=False, **repr_kwargs)
+    # repr_kwargs = {}
+    # if cfg.get('representation', {}).get('enabled', False):
+    #     repr_cfg = cfg.representation
+    #     repr_dl, repr_labels = create_repr_dataloader(repr_cfg)
+    #     repr_kwargs = {
+    #         'repr_dl': repr_dl,
+    #         'repr_labels': repr_labels,
+    #         'estimator_cfg': {'estimators': list(repr_cfg.estimators)}
+    #     }
+    model_module = JepaLight(cfg=cfg, model=model, debug=False)
     checkpoint_callback = L.callbacks.ModelCheckpoint(
         monitor="val_loss",
         mode="min",

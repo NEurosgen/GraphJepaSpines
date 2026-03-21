@@ -208,9 +208,9 @@ class GraphGinEncoder(nn.Module):
         return x
     
 class GraphLatent(nn.Module):
-    def __init__(self, encdoer , macro_mean, macro_std, pooling, sigma=1):
+    def __init__(self, encoder , macro_mean, macro_std, pooling, sigma=1):
         super().__init__()
-        self.encoder = encdoer
+        self.encoder = encoder
         self.macro_mean = macro_mean
         self.macro_std = macro_std
         self.pooling = pooling
@@ -219,7 +219,14 @@ class GraphLatent(nn.Module):
         with torch.no_grad():
             self.encoder.eval()
             edge_attr = batch.edge_attr
-            edge_attr = torch.exp(-edge_attr ** 2 / self.sigma ** 2)  # стоит унифицировать с jepa 
+            
+            # Note: edge_attr may be normalized (centered). RBF expects distance-like values (>=0).
+            # We shift by the minimum value to ensure weights are in (0, 1] range.
+            # Alternatively, one could "un-normalize" if mean/std were known.
+            if edge_attr is not None and edge_attr.numel() > 0:
+                edge_attr = edge_attr - edge_attr.min() 
+                edge_attr = torch.exp(-edge_attr ** 2 / (self.sigma ** 2 + 1e-6))
+            
             node_emb = self.encoder(batch.x, batch.edge_index, edge_attr)
             graph_emb = self.pooling(node_emb, batch.batch)
             thesis_macro = batch.macro_metrics

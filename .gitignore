@@ -12,7 +12,7 @@ checkpoints/
 exp/
 temp.py
 TODO.md
-tests/
 
+explainer/
 contr_fact.py
 global_explainer.py
