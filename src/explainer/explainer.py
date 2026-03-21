@@ -106,8 +106,8 @@ def main(cfg: DictConfig):
     cls_cfg = cfg.classifier
     dm_cfg = cfg.datamodule
     
-    path_to_classifier = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_540/checkpoints/classifier-epoch=50-val_acc=0.9231.ckpt"
-    path_to_lejepa = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/version_533/checkpoints/epoch=199-step=18000.ckpt"
+    path_to_classifier = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/classifier/version_64"
+    path_to_lejepa = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa/version_32"
 
     # Load statistics and transforms
     mean_x, std_x, mean_edge, std_edge = load_stats(cls_cfg.stats_path)

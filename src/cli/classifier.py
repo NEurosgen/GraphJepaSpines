@@ -39,11 +39,9 @@ def compute_macro_stats(dataset, max_samples=2000):
         data = dataset[i]
         if hasattr(data, 'macro_metrics') and data.macro_metrics is not None:
             mac = data.macro_metrics
-            # Ensure mac is [1, D]
             if mac.dim() == 1:
                 mac = mac.unsqueeze(0)
             elif mac.dim() == 2 and mac.size(0) > 1:
-                # If macro metrics are somehow per-node, average them to get graph-level
                 mac = mac.mean(dim=0, keepdim=True)
             
             all_macros.append(mac.cpu())

@@ -9,7 +9,7 @@ from src.data_utils.transforms import GraphPruning, LaplacianPE, CentralityEncod
 
 @hydra.main(version_base="1.3", config_path="../../configs", config_name="config")
 def main(cfg: DictConfig):
-    dataset_path = Path("/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset")
+    dataset_path = Path("/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/9009")
     file_paths = sorted(dataset_path.rglob('*.pt'))
     
     print(f"Preparing {len(file_paths)} files in {dataset_path}...")

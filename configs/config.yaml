@@ -14,7 +14,7 @@ network:
     pos_dim: 3
     num_heads: 2
     dropout: 0.05
-  lambd: 0.05
+  lambd: 0.01
   num_slices: 32
   ema: 0.996
   
@@ -48,10 +48,10 @@ datamodule:
     stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats/'
     class_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv'
   #features: [0,4,5,6,7,13,14,15,17,19,20]
-  batch_size: 2
+  batch_size: 6
   num_workers: 2
-  r: 1
-  mask_ratio: 0.02
+  r: 0.1
+  mask_ratio: 0.01
   structural_encoding:
     laplacian_k: 4       # 4 features
     centrality: true     # 1 feature
@@ -77,7 +77,7 @@ representation:
     - uniformity
 
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
-  r: 1
+  r: 0.1
   structural_encoding:
     laplacian_k: 4
     centrality: true
@@ -85,7 +85,7 @@ representation:
 
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
-  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa/version_26'
+  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa/version_32'
   path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/9009_prepared"
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
   num_classes: 2
