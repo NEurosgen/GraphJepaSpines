@@ -16,36 +16,11 @@ from src.data_utils.transforms import GenNormalize
 from src.data_utils.stats import compute_macro_stats, extract_macro_features
 
 
-def feature_name(idx):
-    names = ['head_area',
-    'head_bbox_max',
-    'head_bbox_middle',
-    'head_bbox_min',
-    'head_skeletal_length',
-    'head_volume',
-    'head_width_ray',
-    'head_width_ray_80_perc',
-    'neck_area',
-    'neck_bbox_max',
-    'neck_bbox_middle',
-    'neck_bbox_min',
-    'neck_skeletal_length',
-    'neck_volume',
-    'neck_width_ray',
-    'neck_width_ray_80_perc',
-    'spine_bbox_volume',
-    'spine_n_faces',
-    'spine_sdf_mean',
-    'spine_skeletal_length',
-    'spine_volume']
 
-    if idx >= len(names):
-        return f"Feature {idx}"
-    return names[idx]
 
 
 class GraphExplainerWrapper(nn.Module):
-    def __init__(self, global_features, jepa_model, classifier, sigma=1.0):
+    def __init__(self, jepa_model, classifier, num_node_features, sigma=1.0):
         super().__init__()
         self.graph_jepa = jepa_model
         for param in self.graph_jepa.parameters():
@@ -58,13 +33,14 @@ class GraphExplainerWrapper(nn.Module):
         self.classifier.eval()
         
         self.sigma = sigma
-        self.register_buffer('global_features', global_features.view(1, -1))
+        self.num_node_features = num_node_features
 
     def forward(self, x, edge_index, edge_attr=None, batch=None, **kwargs):
-        # ─── Edge Attribute Transformation (Consistent with GraphLatent) ───
+        x_real = x[:, :self.num_node_features]
+        global_feats = x[0, self.num_node_features:].unsqueeze(0)
+        
+        # ─── Edge Attribute Transformation ───
         if edge_attr is not None and edge_attr.numel() > 0:
-            # Note: For GNNExplainer, we might not have a full batch object, 
-            # so we assume single graph if batch is None.
             if batch is None:
                 edge_batch = torch.zeros(edge_index.size(1), dtype=torch.long, device=edge_index.device)
             else:
@@ -74,17 +50,16 @@ class GraphExplainerWrapper(nn.Module):
             edge_attr_processed = edge_attr - min_vals[edge_batch]
             edge_attr_exp = torch.exp(-edge_attr_processed ** 2 / (self.sigma ** 2 + 1e-6))
         else:
-            edge_attr_exp = torch.ones(edge_index.size(1), 1, device=x.device, dtype=torch.float32)
+            edge_attr_exp = torch.ones(edge_index.size(1), 1, device=x_real.device, dtype=torch.float32)
             
-        graph_emb = self.graph_jepa(x, edge_index, edge_attr_exp)
+        # Пропускаем через GNN только реальные признаки узлов
+        graph_emb = self.graph_jepa(x_real, edge_index, edge_attr_exp)
         
         if batch is None:
-            batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+            batch = torch.zeros(x_real.size(0), dtype=torch.long, device=x_real.device)
             
-        # Add pooling for JEPA node embeddings
         graph_emb_pooled = global_add_pool(graph_emb, batch)
         
-        global_feats = self.global_features.expand(graph_emb_pooled.size(0), -1)
         combined_features = torch.cat([graph_emb_pooled, global_feats], dim=-1)
         
         return self.classifier(combined_features)
@@ -167,7 +142,7 @@ def main(cfg: DictConfig):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     classifier_module.to(device)
 
-    # Calculate dataset macro stats for dynamic normalization
+
     print("Computing dynamic macro statistics for dataset...")
     macro_mean, macro_std = compute_macro_stats(ds)
 
@@ -175,51 +150,55 @@ def main(cfg: DictConfig):
     sample_idx = cls_cfg.get("explain_sample_idx", 0)
     data = ds[sample_idx].to(device)
     
-    # Extract macro features (global_features) dynamically normalized
-    global_feats = extract_macro_features(data, macro_mean, macro_std)
+    # Extract macro features
+    global_feats = extract_macro_features(data, macro_mean, macro_std) # Формат: [1, num_macro_features]
+
+    # Сохраняем исходное количество признаков узла
+    num_node_features = data.x.size(1)
+
+    # Дублируем макро-признаки для каждого узла графа
+    global_feats_broadcasted = global_feats.expand(data.x.size(0), -1)
+    
+    # Конкатенируем локальные признаки узлов и макро-признаки
+    x_combined = torch.cat([data.x, global_feats_broadcasted], dim=-1)
 
     model_wrapper = GraphExplainerWrapper(
-        global_features=global_feats, 
         jepa_model=encoder, 
         classifier=classifier_module.classifier,
+        num_node_features=num_node_features,
         sigma=cls_cfg.get("sigma", 1.0)
     ).to(device)
     
     # Configure GNN explainer
     explainer = Explainer(
         model=model_wrapper,
-        algorithm=GNNExplainer(epochs=100),
+        algorithm=GNNExplainer(epochs=3000),
         explanation_type='model',
-        node_mask_type='attributes',   # compute node attribute importance
-        edge_mask_type='object',       # compute edge importance
+        node_mask_type='attributes',   # Будет вычислять важность для x_combined
+        edge_mask_type='object',
         model_config=dict(
             mode='multiclass_classification',
             task_level='graph',
-            return_type='raw',  # LinearClassifier returns raw logits
+            return_type='raw',
         ),
     )
 
-    # Provide data arguments to explain
     print(f"Explaining sample {sample_idx}...")
-    explanation = explainer(x=data.x, edge_index=data.edge_index, edge_attr=data.edge_attr)
+    # Передаем объединенный тензор x_combined
+    explanation = explainer(x=x_combined, edge_index=data.edge_index, edge_attr=data.edge_attr)
     print("Explanation computed successfully!")
     
     import os
     os.makedirs("explanations", exist_ok=True)
     
-    # 1. Построить график важности топ-20 признаков узлов
+    # График важности признаков
+    # На графике признаки с индексами от 0 до num_node_features-1 — это признаки узлов.
+    # Признаки с индексами от num_node_features и выше — это макро-признаки.
     explanation.visualize_feature_importance(
         top_k=20, 
-        path="explanations/feature_importance.png"
+        path="explanations/feature_importance_sph.png"
     )
     print("Feature importance graph saved to: explanations/feature_importance.png")
-    
-    # 2. Визуализация графа с подсветкой важных элементов
-    if data.edge_index.shape[1] > 0:
-        explanation.visualize_graph(
-            path="explanations/graph_explanation.png"
-        )
-        print("Graph visualization saved to: explanations/graph_explanation.png")
 
 
 if __name__ == "__main__":
