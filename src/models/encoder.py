@@ -6,7 +6,7 @@ from torch_geometric.nn import GCNConv
 import torch
 import torch.nn as nn
 
-
+import torch.functional as F
 
 import torch
 from torch_geometric.utils import add_self_loops
@@ -165,7 +165,7 @@ class BatchRmsNorm(nn.Module):
 
 
 class GraphGINResNorm(nn.Module):
-    def __init__(self, in_channels):
+    def __init__(self, in_channels ,init_alpha = 1e-3):
         super().__init__()
         self.in_channels = in_channels
     
@@ -176,12 +176,13 @@ class GraphGINResNorm(nn.Module):
         )
 
         self.model = GINConv(nn=mlp, train_eps=True)
-
+        self.alpha = nn.Parameter(init_alpha * torch.ones(in_channels))
         self.norm = BatchRmsNorm(in_channels=in_channels)
     
     def forward(self, x, edge_index, edge_weight=None):
         out = self.model(x, edge_index)
-        out = out + x
+        out = F.relu(out)
+        out = self.alpha*out + x
         out = self.norm(out)
         return out
 
@@ -197,14 +198,12 @@ class GraphGinEncoder(nn.Module):
             GraphGINResNorm(in_channels=out_channels)
             for _ in range(num_layers)
         ])
-        self.act = nn.ReLU()
+        
     
     def forward(self, x, edge_index, edge_weight=None):
         x = self.proj(x)
-        for layer in self.layers[:-1]:
+        for layer in self.layers:
             x = layer(x, edge_index, edge_weight)
-            x = self.act(x)
-        x = self.layers[-1](x, edge_index, edge_weight)
         return x
     
 class GraphLatent(nn.Module):

@@ -17,7 +17,7 @@ class CrossAttentionPredictor(nn.Module):
     def __init__(self, hidden_dim: int, pos_dim: int = 3, num_heads: int = 4, dropout: float = 0.1):
         super().__init__()
         self.hidden_dim = hidden_dim
-        self.pos_embed = nn.Linear(pos_dim, hidden_dim)
+        self.pos_embed = nn.Linear(pos_dim, hidden_dim) # Так а это как то не хорошо
         self.cross_attn = nn.MultiheadAttention(
             embed_dim=hidden_dim, 
             num_heads=num_heads, 

@@ -32,10 +32,24 @@ class GraphDataSet(Dataset):
     def _load_file(self, idx):
         file_path = self.file_paths[idx]
         out = torch.load(file_path, weights_only=False)
-        seg_id = int(re.findall(r'\d+', file_path.stem)[0])
-        out.segment_id = torch.tensor(seg_id, dtype=torch.long)
+        
         if self.get_class is not None:
-            out.y = self.get_class(file_path)
+            try:
+                out.y = self.get_class(file_path=file_path, out=out)
+            except TypeError:
+                out.y = self.get_class(file_path)
+                
+        if hasattr(out, 'segment_id') and isinstance(out.segment_id, str):
+            match = re.search(r'\d+', out.segment_id)
+            if match:
+                out.segment_id = torch.tensor(int(match.group(0)), dtype=torch.long)
+        else:
+            try:
+                seg_id = int(re.findall(r'\d+', file_path.stem)[0])
+                out.segment_id = torch.tensor(seg_id, dtype=torch.long)
+            except Exception:
+                pass
+
         return out
 
     def get(self, idx):
@@ -131,7 +145,7 @@ def make_folder_class_getter(folder_to_label: Dict[str, int]) -> Callable:
     """
     mapping = {k.lower(): v for k, v in folder_to_label.items()}
 
-    def get_class(file_path: Path) -> torch.Tensor:
+    def get_class(file_path: Path, **kwargs) -> torch.Tensor:
         folder_name = Path(file_path).parent.name.lower()
         if folder_name not in mapping:
             raise ValueError(
@@ -140,4 +154,45 @@ def make_folder_class_getter(folder_to_label: Dict[str, int]) -> Callable:
             )
         return torch.tensor(mapping[folder_name], dtype=torch.long)
 
+    return get_class
+
+def make_minnie65_class_getter(csv_path: str) -> Callable:
+    """
+    Создаёт функцию для определения класса графа по segment_id 
+    для датасета minnie65. Неизвестные классы мапятся в -1.
+    """
+    df = pd.read_csv(csv_path)
+    df = df.dropna(subset=['segment_id', 'cell_type'])
+    mapping = {str(int(row['segment_id'])): row['cell_type'] for _, row in df.iterrows()}
+    
+    class_map = {
+        '23P': 0, '4P': 0, '5P-IT': 0, '5P-NP': 0, '5P-PT': 0,
+        '6P-CT': 0, '6P-IT': 0, 'BC': 1, 'BPC': 1, 'MC': 1, 'NGC': 1
+    }
+    
+    def get_class(file_path: Path, out=None, **kwargs) -> torch.Tensor:
+        segment_id = None
+        if out is not None and hasattr(out, 'segment_id') and isinstance(out.segment_id, str):
+            match = re.search(r'\d+', out.segment_id)
+            if match:
+                segment_id = match.group(0)
+                
+        if segment_id is None:
+            filename = Path(file_path).name
+            match = re.search(r'\d+', filename)
+            if not match:
+                raise ValueError(f"Could not find segment_id in filename: {filename}")
+            segment_id = match.group(0)
+            
+        if segment_id not in mapping:
+            # If not in CSV, return -1 (to be filtered out)
+            return torch.tensor(-1, dtype=torch.long)
+            
+        cell_type = mapping[segment_id]
+        if cell_type not in class_map:
+            # Unknown cell type, return -1
+            return torch.tensor(-1, dtype=torch.long)
+            
+        return torch.tensor(class_map[cell_type], dtype=torch.long)
+        
     return get_class

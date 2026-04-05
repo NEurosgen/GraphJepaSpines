@@ -115,22 +115,23 @@ class GraphPruning(torch.nn.Module):
         self.r = r
         self.mutual = mutual
     def forward(self, data):
-        if self.k < 0 and self.r <= 0.0:
+        if self.k < 0 and self.r < 0.0:
             return data
             
         batch = data.batch
         num_nodes = data.num_nodes
         
-        if self.r > 0.0:
+        if self.r >= 0.0:
             # Generate edges based on spatial distance (like DBSCAN)
-            new_edge_index = radius_graph(data.pos, r=self.r, batch=batch, loop=False)
+            # max_num_neighbors is set to num_nodes because default is 32, which limits dense graphs
+            new_edge_index = radius_graph(data.pos, r=self.r, batch=batch, loop=False, max_num_neighbors=num_nodes)
             row, col = new_edge_index
         else:
             # Fallback to older KNN logic
             new_edge_index = knn_graph(data.pos, self.k, batch, loop=False)
             row, col = new_edge_index
             
-        if self.mutual and self.r <= 0.0: # mutual has no meaning for radius, it's always symmetric
+        if self.mutual and self.r < 0.0: # mutual has no meaning for radius, it's always symmetric
             knn_hashes = row*num_nodes + col
             knn_hashes_rev = col*num_nodes + row
             is_mutual = torch.isin(knn_hashes,knn_hashes_rev)
@@ -175,46 +176,17 @@ class MaskData(torch.nn.Module):
         super().__init__()
         self.mask_ratio = mask_ratio
 
-    def _get_random_patch_mask(self, data: Data) -> torch.Tensor:
-        """Optimized mask generation using estimated hop count."""
+    def _get_random_node_mask(self, data: Data) -> torch.Tensor:
+        """Uniform random node masking without topological constraints."""
         num_nodes = data.num_nodes
         num_mask_goal = max(1, int(num_nodes * self.mask_ratio))
         
-        device = data.x.device if data.x is not None else 'cpu'
+        device = data.x.device if hasattr(data, 'x') and data.x is not None else 'cpu'
         mask = torch.zeros(num_nodes, dtype=torch.bool, device=device)
         
-
-        num_edges = data.edge_index.size(1)
-        avg_degree = num_edges / (num_nodes + 1e-6)
+        perm = torch.randperm(num_nodes, device=device)
+        selected = perm[:num_mask_goal]
         
-
-        import math
-        if avg_degree > 1:
-            estimated_hops = max(1, int(math.log(num_mask_goal + 1) / math.log(avg_degree + 1e-6)))
-        else:
-            estimated_hops = min(num_mask_goal, 4)
-        estimated_hops = min(estimated_hops, 6)  
-        
-        start_node = torch.randint(0, num_nodes, (1,)).item()
-        
-        subset, _, _, _ = k_hop_subgraph(
-            node_idx=start_node,
-            num_hops=estimated_hops,
-            edge_index=data.edge_index,
-            relabel_nodes=False,
-            num_nodes=num_nodes
-        )
-        
-        if len(subset) < num_mask_goal and estimated_hops < 6:
-            subset, _, _, _ = k_hop_subgraph(
-                node_idx=start_node,
-                num_hops=estimated_hops + 1,
-                edge_index=data.edge_index,
-                relabel_nodes=False,
-                num_nodes=num_nodes
-            )
-        
-        selected = subset[:num_mask_goal] if len(subset) > num_mask_goal else subset
         mask[selected] = True
         
         return mask
@@ -247,7 +219,7 @@ class MaskData(torch.nn.Module):
         return build_subgraph(subset_ctx), build_subgraph(subset_tgt)
 
     def forward(self, data):
-        mask = self._get_random_patch_mask(data)
+        mask = self._get_random_node_mask(data)
         return self._split_data_by_mask(data, mask)
 class FeatureChoice(nn.Module):
     '''
@@ -423,5 +395,42 @@ class ConcatStructuralPE(torch.nn.Module):
             pe_tensor = torch.cat(pe_list, dim=1)
             data.x = torch.cat([data.x, pe_tensor], dim=1)
             
+        return data
+
+
+class FeatureShuffling(torch.nn.Module):
+    """
+    Shuffles node features (data.x) with a given ratio.
+    ratio = 0: No shuffling (original graph)
+    ratio = 1: Absolute random shuffling (no attention to structure)
+    0 < ratio < 1: Partial shuffling (spectrum of randomness)
+    """
+    def __init__(self, ratio: float = 0.0):
+        super().__init__()
+        self.ratio = ratio
+
+    def forward(self, data):
+        if self.ratio <= 0:
+            return data
+        
+        num_nodes = data.x.size(0)
+        if num_nodes <= 1:
+            return data
+            
+        if self.ratio >= 1.0:
+            # Full random permutation
+            perm = torch.randperm(num_nodes, device=data.x.device)
+            data.x = data.x[perm]
+        else:
+            # Partial shuffling: select a fraction of nodes and shuffle them
+            num_to_shuffle = int(num_nodes * self.ratio)
+            if num_to_shuffle > 1:
+                # Get random indices to shuffle
+                indices = torch.randperm(num_nodes, device=data.x.device)[:num_to_shuffle]
+                # Create a permutation for these indices
+                shuffled_indices = indices[torch.randperm(num_to_shuffle, device=data.x.device)]
+                # Apply shuffling
+                data.x[indices] = data.x[shuffled_indices].clone()
+        
         return data
 

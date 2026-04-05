@@ -44,13 +44,14 @@ datamodule:
   _target_: src.data_utils.datamodule.GraphDataModule
   dataset:
     _target_: src.data_utils.datamodule.GraphDataSet
-    path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/dataset_prepared"
+    path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_prepared"
+    raw_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_sph_minnie65"
     stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_sph/'
     class_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv'
   #features: [0,4,5,6,7,13,14,15,17,19,20]
-  batch_size: 6
+  batch_size: 1024
   num_workers: 2
-  r: 0.0001
+  r: 6
   mask_ratio: 0.01
   structural_encoding:
     laplacian_k: 4       # 4 features
@@ -58,7 +59,7 @@ datamodule:
     random_walk_steps: 5  # 5 features
   seed: ${seed}
 
-  ratio: [0.75,0.25]
+  ratio: [0.9,0.1]
 
 
 representation:
@@ -85,16 +86,16 @@ representation:
 
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
-  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa/version_34'
+  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_1.0/version_0'
   classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/classifier/version_71'
-  path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/processed_dataset_prepared"
-  stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009_sph/"
+  path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_prepared"
+  stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_sph/"
   num_classes: 2
-  class_names: ["ab", "wt"]
+  class_names: ['Excitatory', 'Inhibitory']
   folder_to_label:
     ab: 0
     wt: 1
-  learning_rate: 1e-2
+  learning_rate: 1e-3
   weight_decay: 1e-5
   max_epochs: 500
   optimizer:
@@ -106,3 +107,6 @@ classifier:
 
   sigma: 1.0
   explain_sample_idx: 5
+  extracted_embeddings_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/embeddings/minnie65_embeddings.pt"
+  pooling_level: "neuron"  # 'graph' or 'neuron'
+  pooling_type: "mean"     # 'mean' or 'add'
