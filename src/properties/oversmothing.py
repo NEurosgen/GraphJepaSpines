@@ -47,7 +47,7 @@ def compute_feature_variance(x):
     return variance.item()
 
 
-encoder = load_encoder_from_folder('/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_6/version_0')
+encoder = load_encoder_from_folder('/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_4_sh_0/version_0')
 
 encoder.eval()
 encoder.requires_grad_(False)
@@ -66,8 +66,8 @@ ds = GraphDataSet(
 
 encoder.to('cpu')
 print(encoder)
-
-out = encoder(ds[0].x, ds[0].edge_index, ds[0].edge_attrs)
+print(ds[0].edge_attr)
+out = encoder(ds[0].x, ds[0].edge_index, ds[0].edge_attr)
 
 
 hidden_representations = []
@@ -93,7 +93,7 @@ with torch.no_grad():
     x_proj = encoder.proj(data.x)
     hidden_representations.append(x_proj.clone())
 
-out = encoder(data.x, data.edge_index, data.edge_attrs)
+out = encoder(data.x, data.edge_index, data.edge_attr)
 
 
 print(f"{'Слой':<8} | {'Dirichlet Energy':<18} | {'MAD':<10} | {'Variance':<10}")

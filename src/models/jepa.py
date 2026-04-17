@@ -24,7 +24,7 @@ class CrossAttentionPredictor(nn.Module):
             dropout=dropout,
             batch_first=True
         )
-        
+        self.mask_token = nn.Parameter(torch.zeros(hidden_dim))
 
         self.mlp = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim * 2),
@@ -49,19 +49,20 @@ class CrossAttentionPredictor(nn.Module):
     
         
 
-        context_kv = context_emb + self.pos_embed(context_pos)
-        
+        context_key = context_emb + self.pos_embed(context_pos)
+        context_val = context_emb
         # Query from target positions
-        target_query = self.pos_embed(target_pos)
+        target_query = self.mask_token + self.pos_embed(target_pos)
         
         # Cross-attention (add batch dimension for nn.MultiheadAttention)
         target_query = target_query.unsqueeze(0)
-        context_kv = context_kv.unsqueeze(0)
+        context_key = context_key.unsqueeze(0)
+        context_val = context_val.unsqueeze(0)
         
         attn_out, _ = self.cross_attn(
             query=target_query,
-            key=context_kv,
-            value=context_kv
+            key=context_key,
+            value=context_val
         )
         attn_out = attn_out.squeeze(0)
         

@@ -6,7 +6,6 @@ from torch_geometric.nn import GCNConv
 import torch
 import torch.nn as nn
 
-import torch.functional as F
 
 import torch
 from torch_geometric.utils import add_self_loops
@@ -161,8 +160,35 @@ class BatchRmsNorm(nn.Module):
         rms = torch.sqrt(mean_sq + self.eps)
         x_norm = x / rms
         return self.gamma * x_norm + self.beta
+import torch.nn.functional as F
+from torch_geometric.nn import MessagePassing
+class WeightedGINConv(MessagePassing):
+    """Графовая свертка GIN с поддержкой весовых коэффициентов ребер."""
+    def __init__(self, nn_mlp, eps=0.0, train_eps=True):
+        # Агрегация суммированием сохраняется согласно формуле GIN
+        super().__init__(aggr='add')
+        self.nn = nn_mlp
+        self.initial_eps = eps
+        if train_eps:
+            self.eps = nn.Parameter(torch.tensor([eps]))
+        else:
+            self.register_buffer('eps', torch.tensor([eps]))
 
+    def forward(self, x, edge_index, edge_weight):
+        # Распространение сообщений с передачей весов
+        out = self.propagate(edge_index, x=x, edge_weight=edge_weight)
+        
+        # Обновление центрального узла с учетом epsilon
+        out = out + (1 + self.eps) * x
+        
+        # Проекция через MLP
+        return self.nn(out)
 
+    def message(self, x_j, edge_weight):
+        # Умножение признаков соседнего узла на вес ребра
+        # x_j имеет форму [num_edges, num_features]
+        # edge_weight приводится к форме [num_edges, 1] для бродкастинга
+        return x_j * edge_weight.view(-1, 1)
 
 class GraphGINResNorm(nn.Module):
     def __init__(self, in_channels ,init_alpha = 1e-3):
@@ -175,12 +201,12 @@ class GraphGINResNorm(nn.Module):
             Linear(in_channels, in_channels)
         )
 
-        self.model = GINConv(nn=mlp, train_eps=True)
+        self.model = WeightedGINConv(nn_mlp=mlp, train_eps=True)
         self.alpha = nn.Parameter(init_alpha * torch.ones(in_channels))
         self.norm = BatchRmsNorm(in_channels=in_channels)
     
     def forward(self, x, edge_index, edge_weight=None):
-        out = self.model(x, edge_index)
+        out = self.model(x, edge_index, edge_weight)
         out = F.relu(out)
         out = self.alpha*out + x
         out = self.norm(out)

@@ -18,8 +18,8 @@ torch.set_float32_matmul_precision('high')
 def train_multiple_r(cfg: DictConfig):
     # Definition of densities to iterate through
     print("Warning: iterating through r_values and shuffle_ratios, clearing dataset folder each time.")
-    r_values = [1.5]  # Replace with the actual array values you want to test!
-    shuffle_ratios = [ 1.0, 0.25 , 0.5] # Spectrum of randomness
+    r_values = [0, 1 , 1.5 ,2 ,3]  # Replace with the actual array values you want to test!
+    shuffle_ratios = [ 0] # Spectrum of randomness
     
     for shuffle_ratio in shuffle_ratios:
         for r in r_values:

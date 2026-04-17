@@ -161,13 +161,13 @@ def make_minnie65_class_getter(csv_path: str) -> Callable:
     Создаёт функцию для определения класса графа по segment_id 
     для датасета minnie65. Неизвестные классы мапятся в -1.
     """
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path,dtype={'segment_id': str})
     df = df.dropna(subset=['segment_id', 'cell_type'])
-    mapping = {str(int(row['segment_id'])): row['cell_type'] for _, row in df.iterrows()}
+    mapping = {row['segment_id']: row['cell_type'] for _, row in df.iterrows()}
     
     class_map = {
-        '23P': 0, '4P': 0, '5P-IT': 0, '5P-NP': 0, '5P-PT': 0,
-        '6P-CT': 0, '6P-IT': 0, 'BC': 1, 'BPC': 1, 'MC': 1, 'NGC': 1
+        '23P': 0, '4P': 1, '5P-IT': 2, '5P-NP': 3, '5P-PT': 4,
+        '6P-CT': 5, '6P-IT': 6, 'BC': 7, 'BPC': 8, 'MC': 9, 'NGC': 10
     }
     
     def get_class(file_path: Path, out=None, **kwargs) -> torch.Tensor:

@@ -385,11 +385,12 @@ class ConcatStructuralPE(torch.nn.Module):
 
     def forward(self, data):
         pe_list = []
-     
-        pe_list.append(data.laplacian_pe.to(data.x.device))
-
-        pe_list.append(data.centrality_pe.to(data.x.device))
-        pe_list.append(data.random_walk_pe.to(data.x.device))
+        if hasattr(data , 'laplacian_pe') and data.laplacian_pe is not None:
+            pe_list.append(data.laplacian_pe.to(data.x.device))
+        if hasattr(data , 'centrality_pe') and data.centrality_pe is not None:
+            pe_list.append(data.centrality_pe.to(data.x.device))
+        if hasattr(data , 'random_walk_pe') and data.random_walk_pe is not None:  
+            pe_list.append(data.random_walk_pe.to(data.x.device))
             
         if len(pe_list) > 0:
             pe_tensor = torch.cat(pe_list, dim=1)

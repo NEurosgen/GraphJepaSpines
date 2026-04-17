@@ -5,7 +5,7 @@ network:
   _target_: src.models.jepa.LeJEPA
   encoder:
     _target_: src.models.encoder.GraphGinEncoder
-    in_channels: 110  # Base 21 + Laplacian 4 + Centrality 1 + RW 5 = 31
+    in_channels: 100  # Base 21 + Laplacian 4 + Centrality 1 + RW 5 = 31
     out_channels: 32
     num_layers: 3
   predictor:
@@ -23,7 +23,7 @@ network:
 training:
   learning_rate: 1e-2
   weight_decay: 1e-5
-  max_epochs: 400
+  max_epochs: 200
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
@@ -52,14 +52,14 @@ datamodule:
   batch_size: 1024
   num_workers: 2
   r: 6
-  mask_ratio: 0.01
+  mask_ratio: 0.05
   structural_encoding:
-    laplacian_k: 4       # 4 features
-    centrality: true     # 1 feature
-    random_walk_steps: 5  # 5 features
+    laplacian_k: 0     # 4 features
+    centrality: false     # 1 feature
+    random_walk_steps: 0  # 5 features
   seed: ${seed}
 
-  ratio: [0.9,0.1]
+  ratio: [0.8,0,0.2]
 
 
 representation:
@@ -86,18 +86,18 @@ representation:
 
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
+  pca_components: 20
   checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_1.0/version_0'
   classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/classifier/version_71'
   path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_prepared"
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_sph/"
-  num_classes: 2
-  class_names: ['Excitatory', 'Inhibitory']
+  num_classes: 11
   folder_to_label:
     ab: 0
     wt: 1
   learning_rate: 1e-3
   weight_decay: 1e-5
-  max_epochs: 500
+  max_epochs: 3000
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${classifier.weight_decay}
@@ -109,4 +109,4 @@ classifier:
   explain_sample_idx: 5
   extracted_embeddings_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/embeddings/minnie65_embeddings.pt"
   pooling_level: "neuron"  # 'graph' or 'neuron'
-  pooling_type: "mean"     # 'mean' or 'add'
+  pooling_type: "add"     # 'mean' or 'add'
