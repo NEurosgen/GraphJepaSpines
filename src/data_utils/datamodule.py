@@ -166,8 +166,8 @@ def make_minnie65_class_getter(csv_path: str) -> Callable:
     mapping = {row['segment_id']: row['cell_type'] for _, row in df.iterrows()}
     
     class_map = {
-        '23P': 0, '4P': 1, '5P-IT': 2, '5P-NP': 3, '5P-PT': 4,
-        '6P-CT': 5, '6P-IT': 6, 'BC': 7, 'BPC': 8, 'MC': 9, 'NGC': 10
+        '23P': 0, '4P': 0, '5P-IT': 1, '5P-NP': 1, '5P-PT': 1,
+        '6P-CT': 1, '6P-IT': 1, #'BC': 7, 'BPC': 8, 'MC': 9, 'NGC': 10
     }
     
     def get_class(file_path: Path, out=None, **kwargs) -> torch.Tensor:

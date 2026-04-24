@@ -49,7 +49,7 @@ datamodule:
     stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_sph/'
     class_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv'
   #features: [0,4,5,6,7,13,14,15,17,19,20]
-  batch_size: 1024
+  batch_size: 32
   num_workers: 2
   r: 6
   mask_ratio: 0.05
@@ -59,7 +59,7 @@ datamodule:
     random_walk_steps: 0  # 5 features
   seed: ${seed}
 
-  ratio: [0.8,0,0.2]
+  ratio: [0.6,0.4, 0]
 
 
 representation:
@@ -86,18 +86,17 @@ representation:
 
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
-  pca_components: 20
   checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_1.0/version_0'
   classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/classifier/version_71'
   path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_prepared"
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_sph/"
-  num_classes: 11
+  num_classes: 2
   folder_to_label:
     ab: 0
     wt: 1
   learning_rate: 1e-3
   weight_decay: 1e-5
-  max_epochs: 3000
+  max_epochs: 1000
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${classifier.weight_decay}

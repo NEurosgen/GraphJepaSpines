@@ -19,10 +19,10 @@ class LinearClassifier(nn.Module):
     def __init__(self, in_channels: int, num_classes: int):
         super().__init__()
         self.head = nn.Sequential(
-            nn.LayerNorm(in_channels),
+            nn.Linear(in_channels,10),
             nn.Dropout(0.2),
-            nn.Linear(in_channels, num_classes)
-
+            nn.Tanh(),
+            nn.Linear(10, num_classes)
         )
     def forward(self, embed: torch.Tensor) -> torch.Tensor:
         return self.head(embed)

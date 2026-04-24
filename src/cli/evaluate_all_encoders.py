@@ -218,10 +218,7 @@ class EmbeddingsLightModule(L.LightningModule):
         self.max_epochs = max_epochs
         self.num_classes = num_classes
         self.class_names = class_names
-        self.loss_fn = torch.nn.CrossEntropyLoss(weight=torch.tensor([
-     0.4313,  0.3684,  0.8037, 11.7879,  7.0727,  0.7367,  0.5441,  4.4205,
-         1.6840,  3.9293,  4.4205
-], dtype=torch.float))
+        self.loss_fn = torch.nn.CrossEntropyLoss()
 
         from torchmetrics import Accuracy, F1Score
         self.train_acc = Accuracy(task="multiclass", num_classes=num_classes, average=None)
@@ -297,85 +294,70 @@ class EmbeddingsLightModule(L.LightningModule):
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 import torch
-from torch.utils.data import TensorDataset, DataLoader
+
 import pytorch_lightning as L
 import gc
 import numpy as np
-
+from src.models.classificator import LinearClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, f1_score
 import numpy as np
 def train_classifier(cfg, emb_data, r_val, sh_val=0.0):
     """Trains a linear classifier using scikit-learn analytical solvers with data scaling."""
-    
-    X_train = emb_data['train']['x'].cpu().numpy()
-    y_train = emb_data['train']['y'].cpu().numpy()
-    
-    X_val = emb_data['val']['x'].cpu().numpy()
-    y_val = emb_data['val']['y'].cpu().numpy()
-    
-    X_test = emb_data['test']['x'].cpu().numpy()
-    y_test = emb_data['test']['y'].cpu().numpy()
+    cls_cfg = cfg.classifier
+    train_ds = TensorDataset(emb_data['train']['x'], emb_data['train']['y'])
+    val_ds = TensorDataset(emb_data['val']['x'], emb_data['val']['y'])
+    test_ds = TensorDataset(emb_data['test']['x'], emb_data['test']['y'])
 
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_val = scaler.transform(X_val)
-    X_test = scaler.transform(X_test)
+    print(train_ds[:][1].unique(return_counts=True))
+    print(val_ds[:][1].unique(return_counts=True))
+    print(test_ds[:][1].unique(return_counts=True))
+    batch_size = cfg.datamodule.batch_size
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=2, persistent_workers=True)
+    val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, num_workers=2, persistent_workers=True)
+    test_loader  = DataLoader(test_ds,  batch_size=batch_size, shuffle=False, num_workers=2, persistent_workers=True)
 
-    clf = LogisticRegression(
-        penalty='l2',
-        C=1.0,                   
-        class_weight='balanced', 
-        solver='lbfgs', 
-        max_iter=1000,
-        random_state=cfg.get("seed", 42)
+    in_channels = emb_data['train']['x'].shape[1]
+    num_classes = cls_cfg.get("num_classes", 2)
+    classifier_head = LinearClassifier(in_channels=in_channels, num_classes=num_classes)
+
+    max_epochs = cls_cfg.get("max_epochs", 500)
+    module = EmbeddingsLightModule(
+        classifier_head,
+        lr=cls_cfg.get("learning_rate", 1e-3),
+        wd=cls_cfg.get("weight_decay", 1e-5),
+        max_epochs=max_epochs,
+        num_classes=num_classes,
     )
 
-    clf.fit(X_train, y_train)
+    checkpoint_callback = L.callbacks.ModelCheckpoint(
+        monitor="val_acc", mode="max", save_top_k=1,
+        filename=f"cls-r_{r_val}-sh_{sh_val}-{{epoch:02d}}-{{val_acc:.4f}}",
+    )
 
-    # Предсказания для всех сплитов
-    y_train_pred = clf.predict(X_train)
-    y_val_pred = clf.predict(X_val)
-    y_test_pred = clf.predict(X_test)
+    trainer = L.Trainer(
+        max_epochs=max_epochs,
+        accelerator=cfg.trainer.get("accelerator", "gpu"),
+        devices=cfg.trainer.get("devices", 1),
+        logger = L.loggers.TensorBoardLogger(
+            save_dir=cfg.get("log_dir", "lightning_logs"),
+            name=f"emb_classifier_r_{r_val}_sh_{sh_val}",
+        ),
+        callbacks=[checkpoint_callback],
+        deterministic=True,
+    )
 
-    val_acc = accuracy_score(y_val, y_val_pred)
-    val_f1 = f1_score(y_val, y_val_pred, average='macro')
-    print(f"  [Sklearn] Val Acc: {val_acc:.4f}, Val F1: {val_f1:.4f}")
+    trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
+    results = trainer.test(module, dataloaders=test_loader)
 
-    test_acc = accuracy_score(y_test, y_test_pred)
-    test_f1 = f1_score(y_test, y_test_pred, average='macro')
-    
-    cls_cfg = cfg.classifier
-    class_names = cls_cfg.get("class_names", None)
-    if not class_names:
-        class_names = ['23P', '4P', '5P-IT', '5P-NP', '5P-PT', '6P-CT', '6P-IT', 'BC', 'BPC', 'MC', 'NGC']
-    
-    # Расчет матриц ошибок для train, val и test
-    labels = np.arange(len(class_names))
-    cm_train = confusion_matrix(y_train, y_train_pred, labels=labels)
-    cm_val = confusion_matrix(y_val, y_val_pred, labels=labels)
-    cm_test = confusion_matrix(y_test, y_test_pred, labels=labels)
+    # Cleanup
+    del module, trainer, checkpoint_callback
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
-    results = {
-        "test_acc": float(test_acc),
-        "test_f1": float(test_f1),
-        "cm_train": cm_train,       # Матрица для Train
-        "cm_val": cm_val,           # Матрица для Val
-        "cm_test": cm_test,         # Матрица для Test
-        "class_names": class_names
-    }
-    
-    classes = np.unique(y_test)
-    for cls_np in classes:
-        cls = int(cls_np) 
-        idx = (y_test == cls_np)
-        if np.sum(idx) > 0:
-            cls_acc = accuracy_score(y_test[idx], y_test_pred[idx])
-            name = class_names[cls] if cls < len(class_names) else f"class_{cls}"
-            results[f"test_acc_{name}"] = float(cls_acc)
-
-    return results
+    return results[0] if results else {}
 
 # ──────────────────────────────────────────────────────────
 #  Main: orchestrate the full pipeline
@@ -387,11 +369,11 @@ def main(cfg: DictConfig):
 
     log_dir = cfg.get("log_dir", "lightning_logs")
     #encoders = discover_encoder_folders(log_dir)
-    encoders = [#(0, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_0_sh_0/version_2"),
+    encoders = [(0, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_0_sh_0/version_2"),
                 (1, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1_sh_0/version_1"),
-                #(1.5, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_0/version_1"),
-                #(2, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_2_sh_0/version_1"),
-                #(3, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_3_sh_0/version_0"),
+                (1.5, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_0/version_1"),
+                (2, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_2_sh_0/version_1"),
+                (3, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_3_sh_0/version_0"),
                 ]
                 
     if not encoders:
@@ -413,20 +395,20 @@ def main(cfg: DictConfig):
         print("=" * 60)
         
         print(f"[1/3] Preparing dataset with r={r_val}, sh={sh_val} ...")
-        #prepare_dataset_for_r(cfg, r_val, sh_val)
+        prepare_dataset_for_r(cfg, r_val, sh_val)
 
         OmegaConf.set_struct(cfg, False)
         cfg.classifier.checkpoint_path = encoder_folder
         OmegaConf.set_struct(cfg, True)
 
         print(f"[2/3] Extracting embeddings ...")
-        #emb_data = extract_embeddings_for_model(cfg, encoder_folder, device)
+        emb_data = extract_embeddings_for_model(cfg, encoder_folder, device)
 
         emb_dir = Path(cfg.classifier.get("extracted_embeddings_path", "data/embeddings/embeddings.pt")).parent
         emb_dir.mkdir(parents=True, exist_ok=True)
         emb_path = emb_dir / f"r_{r_val}_embeddings.pt"
-
-        print(f"[3/3] Training classifier ...")
+        torch.save(emb_data,emb_path)
+        # print(f"[3/3] Training classifier ...")
 
         emb_data = torch.load(emb_path)
         metrics = train_classifier(cfg, emb_data, r_val, sh_val)

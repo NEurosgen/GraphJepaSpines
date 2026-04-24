@@ -1,13 +1,16 @@
 import torch
-import umap
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import hydra
+from omegaconf import DictConfig, OmegaConf
 from pathlib import Path
-from sklearn.preprocessing import StandardScaler
 from sklearn.manifold import TSNE
-from src.models.classificator import LinearClassifier
+
+
+from src.models.loader_model import load_classifier
 from src.cli.evaluate_all_encoders import EmbeddingsLightModule
+
 def pool_by_segment(embeddings, labels, segment_ids, pooling_type="mean"):
     """
     Groups embeddings by segment_ids and applies mean or add pooling.
@@ -36,113 +39,156 @@ def pool_by_segment(embeddings, labels, segment_ids, pooling_type="mean"):
         
     return torch.stack(pooled_x), torch.tensor(pooled_y, dtype=torch.long)
 
-
-def visualize_classifier_embeddings_umap(
-    embeddings_path: str,
-    checkpoint_path: str,
-    num_classes: int,
-    in_channels: int,
-    class_names: list = None
+def visualize_embeddings(
+    embeddings, 
+    labels, 
+    method='tsne', 
+    class_names=None, 
+    title='Latent Space Visualization'
 ):
-    """
-    Извлекает эмбеддинги с предпоследнего слоя обученного классификатора 
-    и визуализирует их с помощью UMAP.
-    """
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # 1. Загрузка тестовых данных (сохраненных на шаге 2 пайплайна)
-    print(f"Загрузка данных из {embeddings_path}...")
-    emb_data = torch.load(embeddings_path, map_location='cpu', weights_only=False)
-    x_test = emb_data['train']['x'].to(device)
-    y_test = emb_data['train']['y'].numpy()
-    seg_test = emb_data['train']['seg']
+    print(f"Computing {method.upper()} projection...")
+    if method == 'umap' and HAS_UMAP:
+        reducer = umap.UMAP(random_state=42)
+    else:
+        if method == 'umap':
+            print("UMAP not available or incompatible. Falling back to t-SNE.")
+            method = 'tsne'
+        reducer = TSNE(n_components=2, perplexity=15.0, random_state=42, init='pca', learning_rate='auto')
     
+    embedding_2d = reducer.fit_transform(embeddings)
 
-    x_test, y_test = pool_by_segment(x_test, y_test, seg_test, 'add')
-
-    # 2. Инициализация и загрузка обученной модели
-    print(f"Загрузка модели из {checkpoint_path}...")
-    classifier_head = LinearClassifier(in_channels=in_channels, num_classes=num_classes)
-    
-    model = EmbeddingsLightModule.load_from_checkpoint(
-        checkpoint_path,
-        classifier=classifier_head,
-        lr=1e-3, wd=1e-5, max_epochs=1, num_classes=num_classes
-    ).to(device)
-    model.eval()
-
-    # 3. Извлечение признаков с помощью forward hook
-    # Перехватываем входной тензор для самого последнего модуля (слоя классификации)
-    activation = {}
-    def get_activation(name):
-        def hook(model, input, output):
-            # input - это кортеж. Берем первый элемент как тензор признаков
-            activation[name] = input[0].detach().cpu().numpy()
-        return hook
-
-    # Находим последний слой в классификаторе. 
-    # Если LinearClassifier - это просто nn.Linear, берем его.
-    # Если это nn.Sequential, берем последний слой.
-    last_layer = list(model.classifier.modules())[-1]
-    handle = last_layer.register_forward_hook(get_activation('penultimate_features'))
-
-    print("Прогон данных через классификатор...")
-    with torch.no_grad():
-        _ = model(x_test)
-        
-    handle.remove()
-    features = activation['penultimate_features']
-    #scaler = StandardScaler()
-    #features_scaled = scaler.fit_transform(features)
-    # 4. Снижение размерности с помощью UMAP
-    print("Вычисление UMAP проекции...")
-    reducer = TSNE(
-        n_components=2,
-        perplexity=8.0, 
-        random_state=42,
-        init='random',            # Инициализация через PCA делает алгоритм стабильнее
-        learning_rate='auto',
-
-    )
-    
-    # t-SNE сразу обучается и трансформирует данные
-    embedding_2d = reducer.fit_transform(features)
-
-    # 5. Визуализация
-    print("Построение графика...")
+    print("Plotting...")
     if class_names is None:
+        num_classes = len(np.unique(labels))
         class_names = [f"Class {i}" for i in range(num_classes)]
         
-    # Формируем список строковых меток для каждого объекта
-    labels = [class_names[idx] for idx in y_test]
+    label_names = [class_names[idx] if idx < len(class_names) else f"Class {idx}" for idx in labels]
 
     plt.figure(figsize=(12, 10))
     sns.scatterplot(
         x=embedding_2d[:, 0], 
         y=embedding_2d[:, 1], 
-        hue=labels, 
-        palette='tab20' if num_classes > 10 else 'tab10',
-        s=30, 
-        alpha=0.8,
-        linewidth=0
+        hue=label_names, 
+        palette='tab10',
+        s=50, 
+        alpha=0.7,
+        linewidth=0.5,
+        edgecolor='white'
     )
 
-    plt.title('UMAP проекция эмбеддингов классификатора', fontsize=14)
-    plt.xlabel('UMAP Component 1', fontsize=12)
-    plt.ylabel('UMAP Component 2', fontsize=12)
-    
-    # Выносим легенду за пределы графика
-    plt.legend(title='Классы', bbox_to_anchor=(1.05, 1), loc='upper left', markerscale=2)
+    plt.title(title, fontsize=16)
+    plt.xlabel(f'{method.upper()} 1', fontsize=12)
+    plt.ylabel(f'{method.upper()} 2', fontsize=12)
+    plt.legend(title='Classes', bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
+    
+    save_path = Path("visualizations")
+    save_path.mkdir(exist_ok=True)
+    plt.savefig(save_path / f"latent_space_{method}.png", dpi=800, bbox_inches='tight')
+    print(f"Saved visualization to {save_path / f'latent_space_{method}.png'}")
     plt.show()
 
-# Пример использования:
-if __name__ == "__main__":
-    # Замените пути и параметры на актуальные после завершения обучения
-    visualize_classifier_embeddings_umap(
-        embeddings_path="data/embeddings/r_0_embeddings.pt",
-        checkpoint_path="/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/emb_classifier_r_0_sh_0/version_28/checkpoints/cls-r_0-sh_0-epoch=633-val_acc=0.9477.ckpt",
-        num_classes=11,
-        in_channels=39, # Укажите размерность x_test.shape[1]
-        class_names=['23P', '4P', '5P-IT', '5P-NP', '5P-PT', '6P-CT', '6P-IT', 'BC', 'BPC', 'MC', 'NGC']
+@hydra.main(version_base="1.3", config_path="../../configs", config_name="config")
+def main(cfg: DictConfig):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    cls_cfg = cfg.classifier
+    embeddings_path = cls_cfg.get("extracted_embeddings_path", "data/embeddings/minnie65_embeddings.pt")
+    checkpoint_path = cls_cfg.get("classifier_checkpoint_path")
+    
+    print(f"Loading embeddings from {embeddings_path}...")
+    emb_data = torch.load(embeddings_path, map_location='cpu', weights_only=False)
+    
+    # We'll use the train set for visualization as it's usually larger
+    x = emb_data['train']['x']
+    y = emb_data['train']['y']
+    
+    # Check if we need to pool by segment
+    if 'seg' in emb_data['train']:
+        seg = emb_data['train']['seg']
+        pooling_level = cls_cfg.get("pooling_level", "graph")
+        if pooling_level == "neuron":
+            pooling_type = cls_cfg.get("pooling_type", "mean")
+            print(f"Pooling by segment using {pooling_type} (level: {pooling_level})...")
+            x, y = pool_by_segment(x, y, seg, pooling_type)
+    
+    # Map many classes to two types if needed
+    num_classes = len(torch.unique(y))
+    print(f"Number of classes in data: {num_classes}")
+    
+    if num_classes == 2:
+        class_names = ["Excitatory", "Inhibitory"]
+    else:
+        class_names = [
+            '23P', '4P', '5P-IT', '5P-NP', '5P-PT', '6P-CT', '6P-IT', 
+            'BC', 'BPC', 'MC', 'NGC'
+        ]
+
+    # Option 1: Visualize raw embeddings
+    visualize_embeddings(
+        x.cpu().numpy(), 
+        y.cpu().numpy(), 
+        method='tsne', 
+        class_names=class_names,
+        title='Latent Space (Raw Embeddings)'
     )
+    
+    # Option 2: Visualize penultimate features from classifier
+    if checkpoint_path and Path(checkpoint_path).exists():
+        print(f"Loading classifier from {checkpoint_path}...")
+        try:
+            model = load_classifier(checkpoint_path).to(device)
+            model.eval()
+            
+            # Use forward hook to get penultimate features
+            activation = {}
+            def get_activation(name):
+                def hook(model, input, output):
+                    # input is (output_of_previous_layer,)
+                    activation[name] = input[0].detach().cpu().numpy()
+                return hook
+
+            # Find the Linear layer in the Sequential head
+            # LinearClassifier.head is nn.Sequential(norm, dropout, linear)
+            last_layer = None
+            if hasattr(model, 'classifier') and hasattr(model.classifier, 'head'):
+                for layer in model.classifier.head:
+                    if isinstance(layer, torch.nn.Linear):
+                        last_layer = layer
+                        break
+            
+            if last_layer:
+                handle = last_layer.register_forward_hook(get_activation('penultimate'))
+                
+                print("Extracting penultimate features...")
+                with torch.no_grad():
+                    # Check if model expects batch object or raw tensor
+                    if hasattr(model, 'forward_with_embeddings'): # hypothetical
+                         _ = model.forward_with_embeddings(x.to(device))
+                    else:
+                        # ClassifierLightModule.forward(batch) calls encoder_graph(batch)
+                        # We might need to call only the classifier part
+                        if hasattr(model, 'classifier'):
+                            _ = model.classifier(x.to(device))
+                        else:
+                            _ = model(x.to(device))
+                
+                handle.remove()
+                features = activation['penultimate']
+                
+                visualize_embeddings(
+                    features, 
+                    y.cpu().numpy(), 
+                    method='umap', 
+                    class_names=class_names,
+                    title='Latent Space (Classifier Penultimate Features)'
+                )
+            else:
+                print("Could not find Linear layer for hook.")
+        except Exception as e:
+            print(f"Error loading classifier or extracting features: {e}")
+    else:
+        print(f"Checkpoint path {checkpoint_path} not found or not provided.")
+
+if __name__ == "__main__":
+    main()
