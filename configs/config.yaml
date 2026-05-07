@@ -45,21 +45,21 @@ datamodule:
   dataset:
     _target_: src.data_utils.datamodule.GraphDataSet
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_prepared"
-    raw_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_sph_minnie65"
-    stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_sph/'
+    raw_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/9009"
+    stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/'
     class_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv'
   #features: [0,4,5,6,7,13,14,15,17,19,20]
-  batch_size: 32
+  batch_size: 1024
   num_workers: 2
-  r: 6
+  r: 3
   mask_ratio: 0.05
   structural_encoding:
-    laplacian_k: 0     # 4 features
-    centrality: false     # 1 feature
-    random_walk_steps: 0  # 5 features
+    laplacian_k: 4     # 4 features
+    centrality: true     # 1 feature
+    random_walk_steps: 5  # 5 features
   seed: ${seed}
 
-  ratio: [0.6,0.4, 0]
+  ratio: [0.8,0.2]
 
 
 representation:
@@ -78,7 +78,7 @@ representation:
     - uniformity
 
   stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
-  r: 0.00001
+  r: 10
   structural_encoding:
     laplacian_k: 4
     centrality: true
@@ -86,17 +86,18 @@ representation:
 
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
-  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_1.0/version_0'
-  classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/classifier/version_71'
+  noise_sigma: 0
+  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa/version_32'
+  classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/classifier/version_64'
   path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_prepared"
-  stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_sph/"
+  stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_data/"
   num_classes: 2
   folder_to_label:
     ab: 0
     wt: 1
   learning_rate: 1e-3
   weight_decay: 1e-5
-  max_epochs: 1000
+  max_epochs: 150
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${classifier.weight_decay}

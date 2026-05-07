@@ -435,3 +435,36 @@ class FeatureShuffling(torch.nn.Module):
         
         return data
 
+
+class GaussianNoiseAugmentation(torch.nn.Module):
+    """
+    Adds Gaussian noise N(0, sigma) to node features.
+    sigma = 0: no noise (original features preserved)
+    sigma > 0: data.x = data.x + N(0, sigma)
+    """
+    def __init__(self, sigma: float = 0.0):
+        super().__init__()
+        self.sigma = sigma
+
+    def forward(self, data):
+        if self.sigma > 0:
+            noise = torch.randn_like(data.x) * self.sigma
+            data.x = data.x + noise
+        return data
+
+
+class GaussianPositionNoise(torch.nn.Module):
+    """
+    Adds Gaussian noise N(0, sigma) to node positions.
+    sigma = 0: no noise (original positions preserved)
+    sigma > 0: data.pos = data.pos + N(0, sigma)
+    """
+    def __init__(self, sigma: float = 0.0):
+        super().__init__()
+        self.sigma = sigma
+
+    def forward(self, data):
+        if self.sigma > 0 and data.pos is not None:
+            noise = torch.randn_like(data.pos) * self.sigma
+            data.pos = data.pos + noise
+        return data

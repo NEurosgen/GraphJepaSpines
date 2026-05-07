@@ -1,9 +1,12 @@
 import hydra
+import numpy as np
 from omegaconf import DictConfig
 import pytorch_lightning as L
+import torch
 from hydra.utils import instantiate
-from ..models.jepa import JepaLight
+
 from ..data_utils.datamodule import GraphDataModule, GraphDataSet
+from ..data_utils.structural_stats import ThesisMacroMetrics
 from ..data_utils.transforms import (
     GenNormalize, 
     create_mask_collate_fn,
@@ -14,9 +17,9 @@ from ..data_utils.transforms import (
     LocalPos,
     ConcatStructuralPE
 )
-from ..data_utils.structural_stats import ThesisMacroMetrics
-import torch
-import numpy as np
+from ..models.jepa import JepaLight
+
+
 torch.set_float32_matmul_precision('high')
 
 
@@ -30,7 +33,7 @@ def load_stats(path):
 
 def build_transforms(cfg, mean_x, std_x, mean_edge, std_edge):
     """
-    Build transforms by config
+    Build transforms config.
     """
     transforms = []
     
@@ -44,11 +47,7 @@ def build_transforms(cfg, mean_x, std_x, mean_edge, std_edge):
     transforms.append(NormNoEps(mean=mean_x, std=std_x, eps=cfg.get('eps', 1e-6)))
     transforms.append(EdgeNorm(mean=mean_edge, std=std_edge))
     transforms.append(LocalPos())
-
-    # --- Add Thesis Macro Metrics ---
     transforms.append(ThesisMacroMetrics())
-    
-    # Пристыковываем предрассчитанные структурные признаки (PE)
     transforms.append(ConcatStructuralPE())
     
     return transforms
@@ -59,16 +58,11 @@ def get_datamodule(cfg):
     
     transforms = build_transforms(cfg, mean_x, std_x, mean_edge, std_edge)
     
-    # 1. Статические трансформации (однажды для каждого графа)
     static_transform = GenNormalize(transforms=transforms, mask_transform=None)
-    
-    # 2. Динамическая маска (постоянно генерируется даталоадером в collate_fn)
     mask_transform = MaskData(mask_ratio=cfg.mask_ratio)
     dyn_transform = GenNormalize(transforms=[], mask_transform=mask_transform)
     
     collate_fn = create_mask_collate_fn(dyn_transform)
-    
-    # Считываем настройку кэширования из конфига или по умолчанию True
     save_cache = cfg.dataset.get('save_cache', True)
     
     ds = GraphDataSet(path=cfg.dataset.path, transform=static_transform, save_cache=save_cache)
@@ -86,13 +80,13 @@ def get_datamodule(cfg):
 def create_repr_dataloader(repr_cfg):
     """
     Returns:
-        Tuple[DataLoader, np.ndarray]: DataLoader и массив меток
+        Tuple[DataLoader, np.ndarray]: DataLoader and array of labels.
     """
     from torch.utils.data import DataLoader, ConcatDataset
     from torch_geometric.data import Batch
     
     mean_x, std_x, mean_edge, std_edge = load_stats(repr_cfg.stats_path)
-    transforms = build_transforms(repr_cfg , mean_x, std_x, mean_edge, std_edge )
+    transforms = build_transforms(repr_cfg, mean_x, std_x, mean_edge, std_edge)
     norm = GenNormalize(transforms=transforms, mask_transform=None)
     
     datasets = []
@@ -125,15 +119,6 @@ def main(cfg: DictConfig):
     L.seed_everything(cfg.seed, workers=True)
     model = instantiate(cfg.network, _recursive_=True)
 
-    # repr_kwargs = {}
-    # if cfg.get('representation', {}).get('enabled', False):
-    #     repr_cfg = cfg.representation
-    #     repr_dl, repr_labels = create_repr_dataloader(repr_cfg)
-    #     repr_kwargs = {
-    #         'repr_dl': repr_dl,
-    #         'repr_labels': repr_labels,
-    #         'estimator_cfg': {'estimators': list(repr_cfg.estimators)}
-    #     }
     model_module = JepaLight(cfg=cfg, model=model, debug=False)
     checkpoint_callback = L.callbacks.ModelCheckpoint(
         monitor="val_loss",
@@ -153,6 +138,7 @@ def main(cfg: DictConfig):
 
     datamodule = get_datamodule(cfg.datamodule)
     trainer.fit(model_module, datamodule=datamodule)
+
 
 if __name__ == "__main__":
     main()

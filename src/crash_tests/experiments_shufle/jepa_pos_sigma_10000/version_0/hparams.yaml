@@ -1,0 +1,95 @@
+cfg:
+  seed: 51
+  network:
+    _target_: src.models.jepa.LeJEPA
+    encoder:
+      _target_: src.models.encoder.GraphGinEncoder
+      in_channels: 100
+      out_channels: 32
+      num_layers: 3
+    predictor:
+      _target_: src.models.jepa.CrossAttentionPredictor
+      hidden_dim: 32
+      pos_dim: 3
+      num_heads: 2
+      dropout: 0.05
+    lambd: 0.01
+    num_slices: 32
+    ema: 0.996
+  training:
+    learning_rate: 0.01
+    weight_decay: 1.0e-05
+    max_epochs: 200
+    optimizer:
+      _target_: torch.optim.AdamW
+      weight_decay: 1.0e-05
+    scheduler:
+      _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+      T_max: 200
+  trainer:
+    max_epochs: 200
+    accelerator: gpu
+    devices: 1
+    log_every_n_steps: 10
+  datamodule:
+    _target_: src.data_utils.datamodule.GraphDataModule
+    dataset:
+      _target_: src.data_utils.datamodule.GraphDataSet
+      path: /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_prepared
+      raw_path: /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_sph_minnie65
+      stats_path: /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_sph/
+      class_path: /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv
+    batch_size: 1024
+    num_workers: 2
+    r: 3
+    mask_ratio: 0.05
+    structural_encoding:
+      laplacian_k: 0
+      centrality: false
+      random_walk_steps: 0
+    seed: 51
+    ratio:
+    - 0.8
+    - 0.2
+  representation:
+    enabled: true
+    batch_size: 2
+    datasets:
+    - path: /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_ab
+      label: 0
+    - path: /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/notebooks/graph_dataset_output_wt
+      label: 1
+    estimators:
+    - rank_me
+    - isotropy
+    - uniformity
+    stats_path: /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/
+    r: 1.0e-05
+    structural_encoding:
+      laplacian_k: 4
+      centrality: true
+      random_walk_steps: 5
+  classifier:
+    noise_sigma: 1000
+    checkpoint_path: /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/crash_tests/empty_nodes/sigma_100
+    classifier_checkpoint_path: /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/classifier/version_71
+    path: /home/eugen/Desktop/CodeWork/Projects/Diplom/Archiv/processed_dataset
+    stats_path: /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009_sph/
+    num_classes: 2
+    folder_to_label:
+      ab: 0
+      wt: 1
+    learning_rate: 0.001
+    weight_decay: 1.0e-05
+    max_epochs: 1000
+    optimizer:
+      _target_: torch.optim.AdamW
+      weight_decay: 1.0e-05
+    scheduler:
+      _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+      T_max: 1000
+    sigma: 1.0
+    explain_sample_idx: 5
+    extracted_embeddings_path: /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/embeddings/minnie65_embeddings.pt
+    pooling_level: neuron
+    pooling_type: add

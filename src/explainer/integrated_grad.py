@@ -18,6 +18,42 @@ from src.data_utils.stats import compute_macro_stats, extract_macro_features
 from torch_geometric.nn import global_add_pool
 from torch_geometric.utils import scatter
 
+
+def feature_name(idx):
+    local_names = [
+        'head_area', 'head_bbox_max', 'head_bbox_middle', 'head_bbox_min',
+        'head_skeletal_length', 'head_volume', 'head_width_ray', 'head_width_ray_80_perc',
+        'neck_area', 'neck_bbox_max', 'neck_bbox_middle', 'neck_bbox_min',
+        'neck_skeletal_length', 'neck_volume', 'neck_width_ray', 'neck_width_ray_80_perc',
+        'spine_bbox_volume', 'spine_n_faces', 'spine_sdf_mean', 'spine_skeletal_length',
+        'spine_volume'
+    ]
+    if idx < len(local_names):
+        return local_names[idx]
+    return f"Node Feature {idx}"
+
+
+def set_neurips_style():
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "DejaVu Serif"],
+        "font.size": 12,
+        "axes.titlesize": 14,
+        "axes.labelsize": 12,
+        "legend.fontsize": 10,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "figure.dpi": 300,
+        "savefig.dpi": 300,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": True,
+        "grid.alpha": 0.3,
+        "grid.linestyle": "--"
+    })
+
+
 class GraphExplainerWrapper(nn.Module):
     def __init__(self, jepa_model, classifier, sigma=1.0):
         super().__init__()
@@ -195,6 +231,7 @@ def main(cfg: DictConfig):
         samples_count[true_class] += 1
         
     os.makedirs("explanations", exist_ok=True)
+    set_neurips_style()
     
     for cls_idx in feature_ig_sum.keys():
         if samples_count[cls_idx] == 0:
@@ -202,10 +239,11 @@ def main(cfg: DictConfig):
             
         mean_ig = (feature_ig_sum[cls_idx] / samples_count[cls_idx]).numpy()
         
-        plt.figure(figsize=(12, 8))
-        indices = np.argsort(mean_ig)[-20:] 
-        plt.barh(range(len(indices)), mean_ig[indices], align='center', color='cyan')
-        plt.yticks(range(len(indices)), [f"Feature {idx}" for idx in indices])
+        plt.figure(figsize=(10, 6))
+        top_k = min(20, len(mean_ig))
+        indices = np.argsort(mean_ig)[-top_k:] 
+        plt.barh(range(top_k), mean_ig[indices], align='center', color='#1f77b4')
+        plt.yticks(range(top_k), [feature_name(idx) for idx in indices])
         
         plt.xlabel('Integrated Gradient Attribution (Real Units Scale)')
         plt.title(f'IG Feature Attribution for shifting class {cls_idx} -> {1 - cls_idx}')
