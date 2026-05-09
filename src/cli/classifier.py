@@ -11,7 +11,7 @@ from omegaconf import DictConfig
 from hydra.utils import instantiate
 from ..models.loader_model import load_encoder_from_folder
 from ..models.jepa import JepaLight
-from ..data_utils.datamodule import GraphDataModule, GraphDataSet, make_folder_class_getter
+from ..data_utils.datamodule import GraphDataModule, GraphDataSet, make_folder_class_getter, make_minnie65_class_getter
 from ..data_utils.transforms import (
     GenNormalize,
     NormNoEps,
@@ -30,7 +30,7 @@ from src.models.encoder import GraphLatent
 from ..data_utils.stats import compute_macro_stats
 
 
-def get_class_9009(file_path):
+def get_class_9009(file_path, **kwargs):
 
     mapping = {"ab": 0, "wt" :1}
 
@@ -42,9 +42,6 @@ def get_class_9009(file_path):
         )
     return torch.tensor(mapping[folder_name], dtype=torch.long)
 
-
-def get_class_minnie_65(path):
-    pass
 
 def _simple_colate(data_list):
     return Batch.from_data_list(data_list)
@@ -65,7 +62,7 @@ def main(cfg: DictConfig):
     num_classes = cls_cfg.get("num_classes", 2)
     
     dm_cfg = cfg.datamodule
-    mean_x, std_x, mean_edge, std_edge = load_stats(cls_cfg.stats_path)
+    mean_x, std_x, mean_edge, std_edge = load_stats(cls_cfg.stats_path)  # для minnie поменять путь в конфиге на обучный stat path
     transforms = build_transforms(dm_cfg, mean_x, std_x, mean_edge, std_edge)
     gen_normalize = GenNormalize(transforms=transforms, mask_transform=None)
 

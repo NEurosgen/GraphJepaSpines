@@ -32,10 +32,24 @@ class GraphDataSet(Dataset):
     def _load_file(self, idx):
         file_path = self.file_paths[idx]
         out = torch.load(file_path, weights_only=False)
-        seg_id = int(re.findall(r'\d+', file_path.stem)[0])
-        out.segment_id = torch.tensor(seg_id, dtype=torch.long)
+        
         if self.get_class is not None:
-            out.y = self.get_class(file_path)
+            try:
+                out.y = self.get_class(file_path=file_path, out=out)
+            except TypeError:
+                out.y = self.get_class(file_path)
+                
+        if hasattr(out, 'segment_id') and isinstance(out.segment_id, str):
+            match = re.search(r'\d+', out.segment_id)
+            if match:
+                out.segment_id = torch.tensor(int(match.group(0)), dtype=torch.long)
+        else:
+            try:
+                seg_id = int(re.findall(r'\d+', file_path.stem)[0])
+                out.segment_id = torch.tensor(seg_id, dtype=torch.long)
+            except Exception:
+                pass
+
         return out
 
     def get(self, idx):
@@ -131,7 +145,7 @@ def make_folder_class_getter(folder_to_label: Dict[str, int]) -> Callable:
     """
     mapping = {k.lower(): v for k, v in folder_to_label.items()}
 
-    def get_class(file_path: Path) -> torch.Tensor:
+    def get_class(file_path: Path, **kwargs) -> torch.Tensor:
         folder_name = Path(file_path).parent.name.lower()
         if folder_name not in mapping:
             raise ValueError(

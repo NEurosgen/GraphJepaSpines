@@ -5,11 +5,11 @@ from omegaconf import DictConfig
 from pathlib import Path
 from tqdm import tqdm
 
-from src.data_utils.transforms import GraphPruning, LaplacianPE, CentralityEncoding, RandomWalkPE, LocalPos
+from src.data_utils.transforms import GraphPruning, LaplacianPE, CentralityEncoding, RandomWalkPE, LocalPos, FeatureShuffling
 
 @hydra.main(version_base="1.3", config_path="../../configs", config_name="config")
 def main(cfg: DictConfig):
-    dataset_path = Path("/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/dataset")
+    dataset_path = Path(cfg.datamodule.dataset.raw_path)
     file_paths = sorted(dataset_path.rglob('*.pt'))
     
     print(f"Preparing {len(file_paths)} files in {dataset_path}...")
@@ -20,19 +20,20 @@ def main(cfg: DictConfig):
     radius_r = cfg.datamodule.get('r', -1.0)
     mutual = cfg.datamodule.get('mutual_knn', False)
     pruning = GraphPruning(k=knn_k, r=radius_r, mutual=mutual)
+    shuffling = FeatureShuffling(ratio=cfg.datamodule.get('shuffle_ratio', 0.0))
     
     se_cfg = cfg.datamodule.get('structural_encoding', {})
     lap_k = se_cfg.get('laplacian_k', 0)
     centrality = se_cfg.get('centrality', False)
     rw_steps = se_cfg.get('random_walk_steps', 0)
     
-    # Save to a new _prepared directory so we don't accidentally ruin raw data
-    out_dir = dataset_path.parent / (dataset_path.name + "_prepared")
+    out_dir = Path(cfg.datamodule.dataset.path)
     print(f"Saving pre-processed dataset to: {out_dir}")
     
     for file_path in tqdm(file_paths):
         data = torch.load(file_path, map_location='cpu', weights_only=False)
         data = pruning(LocalPos()(data))
+        data = shuffling(data)
         x_dim_original = data.x.size(1)
         
         if lap_k > 0:
