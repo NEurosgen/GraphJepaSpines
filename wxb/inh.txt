@@ -1,0 +1,475 @@
+Found 5 pretrained encoders:
+  r=     0  →  /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_0_sh_0/version_2
+  r=     1  →  /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1_sh_0/version_1
+  r=   1.5  →  /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_0/version_1
+  r=     2  →  /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_2_sh_0/version_1
+  r=     3  →  /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_3_sh_0/version_0
+
+============================================================
+  r = 0, sh = 0
+============================================================
+[1/3] Preparing dataset with r=0, sh=0 ...
+Preparing dataset r=0, sh=0:   0%|                                                                                | 0/82917 [00:00<?, ?it/s]/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/data_utils/transforms.py:97: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at /pytorch/aten/src/ATen/native/ReduceOps.cpp:1857.)
+  pos_std = torch.std(pos,dim=0).clamp(min=1e-6)
+[2/3] Extracting embeddings ...                                                                                                             
+/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/data_utils/transforms.py:97: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at /pytorch/aten/src/ATen/native/ReduceOps.cpp:1857.)
+  pos_std = torch.std(pos,dim=0).clamp(min=1e-6)
+All: 100%|████████████████████████████████████████████████████████████████████████████████████████████████| 648/648 [00:09<00:00, 66.52it/s]
+  Embeddings saved → /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/embeddings/r_0_embeddings.pt
+[3/3] Training classifier ...
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+2026-04-15 13:50:24.604659: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-04-15 13:50:24.635093: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI AVX_VNNI_INT8 AVX_NE_CONVERT FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-04-15 13:50:25.101230: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━┓
+┃   ┃ Name       ┃ Type               ┃ Params ┃ Mode  ┃ FLOPs ┃
+┡━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━╇━━━━━━━┩
+│ 0 │ classifier │ LinearClassifier   │    158 │ train │     0 │
+│ 1 │ loss_fn    │ CrossEntropyLoss   │      0 │ train │     0 │
+│ 2 │ train_acc  │ MulticlassAccuracy │      0 │ train │     0 │
+│ 3 │ val_acc    │ MulticlassAccuracy │      0 │ train │     0 │
+│ 4 │ test_acc   │ MulticlassAccuracy │      0 │ train │     0 │
+│ 5 │ train_f1   │ MulticlassF1Score  │      0 │ train │     0 │
+│ 6 │ val_f1     │ MulticlassF1Score  │      0 │ train │     0 │
+│ 7 │ test_f1    │ MulticlassF1Score  │      0 │ train │     0 │
+└───┴────────────┴────────────────────┴────────┴───────┴───────┘
+Trainable params: 158                                                                                                                       
+Non-trainable params: 0                                                                                                                     
+Total params: 158                                                                                                                           
+Total estimated model params size (MB): 0                                                                                                   
+Modules in train mode: 12                                                                                                                   
+Modules in eval mode: 0                                                                                                                     
+Total FLOPs: 0                                                                                                                              
+/home/eugen/miniforge3/envs/torch_5060/lib/python3.12/site-packages/pytorch_lightning/utilities/_pytree.py:21: `isinstance(treespec, 
+LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+/home/eugen/miniforge3/envs/torch_5060/lib/python3.12/site-packages/pytorch_lightning/loops/fit_loop.py:317: The number of training batches 
+(1) is smaller than the logging interval Trainer(log_every_n_steps=50). Set a lower value for log_every_n_steps if you want to see logs for 
+the training epoch.
+Epoch 1499/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 42.000 train_loss_step: 0.244 train_f1_step: 
+                                                                                        0.843 val_loss: 0.324 val_f1: 0.686 val_acc: 0.715  
+Epoch 1499/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 42.000 train_loss_step: 0.244 train_f1_step: 
+                                                                                        0.843 val_loss: 0.324 val_f1: 0.686 val_acc: 0.715  
+                                                                                        train_loss_epoch: 0.244 train_f1_epoch: 0.843       
+                                                                                        train_acc: 0.886                                    
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃        Test metric        ┃       DataLoader 0        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│         test_acc          │     0.985714316368103     │
+│    test_acc_Excitatory    │    0.9714285731315613     │
+│    test_acc_Inhibitory    │            1.0            │
+│          test_f1          │    0.9472991228103638     │
+└───────────────────────────┴───────────────────────────┘
+Testing ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s  
+
+  ✓ r=0 sh=0 RESULTS:
+  Overall Acc: 0.9857, Overall F1: 0.9473
+  Per-class Accuracy:
+    Excitatory: 0.9714
+    Inhibitory: 1.0000
+------------------------------------------------------------
+
+============================================================
+  r = 1, sh = 0
+============================================================
+[1/3] Preparing dataset with r=1, sh=0 ...
+Preparing dataset r=1, sh=0:   0%|                                                                                | 0/82917 [00:00<?, ?it/s]/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/data_utils/transforms.py:97: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at /pytorch/aten/src/ATen/native/ReduceOps.cpp:1857.)
+  pos_std = torch.std(pos,dim=0).clamp(min=1e-6)
+[2/3] Extracting embeddings ...                                                                                                             
+/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/data_utils/transforms.py:97: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at /pytorch/aten/src/ATen/native/ReduceOps.cpp:1857.)
+  pos_std = torch.std(pos,dim=0).clamp(min=1e-6)
+All: 100%|████████████████████████████████████████████████████████████████████████████████████████████████| 648/648 [03:01<00:00,  3.57it/s]
+  Embeddings saved → /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/embeddings/r_1_embeddings.pt
+[3/3] Training classifier ...
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━┓
+┃   ┃ Name       ┃ Type               ┃ Params ┃ Mode  ┃ FLOPs ┃
+┡━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━╇━━━━━━━┩
+│ 0 │ classifier │ LinearClassifier   │    158 │ train │     0 │
+│ 1 │ loss_fn    │ CrossEntropyLoss   │      0 │ train │     0 │
+│ 2 │ train_acc  │ MulticlassAccuracy │      0 │ train │     0 │
+│ 3 │ val_acc    │ MulticlassAccuracy │      0 │ train │     0 │
+│ 4 │ test_acc   │ MulticlassAccuracy │      0 │ train │     0 │
+│ 5 │ train_f1   │ MulticlassF1Score  │      0 │ train │     0 │
+│ 6 │ val_f1     │ MulticlassF1Score  │      0 │ train │     0 │
+│ 7 │ test_f1    │ MulticlassF1Score  │      0 │ train │     0 │
+└───┴────────────┴────────────────────┴────────┴───────┴───────┘
+Trainable params: 158                                                                                                                       
+Non-trainable params: 0                                                                                                                     
+Total params: 158                                                                                                                           
+Total estimated model params size (MB): 0                                                                                                   
+Modules in train mode: 12                                                                                                                   
+Modules in eval mode: 0                                                                                                                     
+Total FLOPs: 0                                                                                                                              
+/home/eugen/miniforge3/envs/torch_5060/lib/python3.12/site-packages/pytorch_lightning/utilities/_pytree.py:21: `isinstance(treespec, 
+LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+/home/eugen/miniforge3/envs/torch_5060/lib/python3.12/site-packages/pytorch_lightning/loops/fit_loop.py:317: The number of training batches 
+(1) is smaller than the logging interval Trainer(log_every_n_steps=50). Set a lower value for log_every_n_steps if you want to see logs for 
+the training epoch.
+Epoch 1499/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 4.000 train_loss_step: 0.159 train_f1_step:  
+                                                                                        0.877 val_loss: 0.175 val_f1: 0.853 val_acc: 0.826  
+Epoch 1499/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 4.000 train_loss_step: 0.159 train_f1_step:  
+                                                                                        0.877 val_loss: 0.175 val_f1: 0.853 val_acc: 0.826  
+                                                                                        train_loss_epoch: 0.159 train_f1_epoch: 0.877       
+                                                                                        train_acc: 0.895                                    
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃        Test metric        ┃       DataLoader 0        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│         test_acc          │    0.8999999761581421     │
+│    test_acc_Excitatory    │            1.0            │
+│    test_acc_Inhibitory    │     0.800000011920929     │
+│          test_f1          │    0.9374021887779236     │
+└───────────────────────────┴───────────────────────────┘
+Testing ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s  
+
+  ✓ r=1 sh=0 RESULTS:
+  Overall Acc: 0.9000, Overall F1: 0.9374
+  Per-class Accuracy:
+    Excitatory: 1.0000
+    Inhibitory: 0.8000
+------------------------------------------------------------
+
+============================================================
+  r = 1.5, sh = 0
+============================================================
+[1/3] Preparing dataset with r=1.5, sh=0 ...
+[2/3] Extracting embeddings ...                                                                                                             
+/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/data_utils/transforms.py:97: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at /pytorch/aten/src/ATen/native/ReduceOps.cpp:1857.)
+  pos_std = torch.std(pos,dim=0).clamp(min=1e-6)
+All: 100%|████████████████████████████████████████████████████████████████████████████████████████████████| 648/648 [03:06<00:00,  3.47it/s]
+  Embeddings saved → /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/embeddings/r_1.5_embeddings.pt
+[3/3] Training classifier ...
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━┓
+┃   ┃ Name       ┃ Type               ┃ Params ┃ Mode  ┃ FLOPs ┃
+┡━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━╇━━━━━━━┩
+│ 0 │ classifier │ LinearClassifier   │    158 │ train │     0 │
+│ 1 │ loss_fn    │ CrossEntropyLoss   │      0 │ train │     0 │
+│ 2 │ train_acc  │ MulticlassAccuracy │      0 │ train │     0 │
+│ 3 │ val_acc    │ MulticlassAccuracy │      0 │ train │     0 │
+│ 4 │ test_acc   │ MulticlassAccuracy │      0 │ train │     0 │
+│ 5 │ train_f1   │ MulticlassF1Score  │      0 │ train │     0 │
+│ 6 │ val_f1     │ MulticlassF1Score  │      0 │ train │     0 │
+│ 7 │ test_f1    │ MulticlassF1Score  │      0 │ train │     0 │
+└───┴────────────┴────────────────────┴────────┴───────┴───────┘
+Trainable params: 158                                                                                                                       
+Non-trainable params: 0                                                                                                                     
+Total params: 158                                                                                                                           
+Total estimated model params size (MB): 0                                                                                                   
+Modules in train mode: 12                                                                                                                   
+Modules in eval mode: 0                                                                                                                     
+Total FLOPs: 0                                                                                                                              
+/home/eugen/miniforge3/envs/torch_5060/lib/python3.12/site-packages/pytorch_lightning/utilities/_pytree.py:21: `isinstance(treespec, 
+LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+/home/eugen/miniforge3/envs/torch_5060/lib/python3.12/site-packages/pytorch_lightning/loops/fit_loop.py:317: The number of training batches 
+(1) is smaller than the logging interval Trainer(log_every_n_steps=50). Set a lower value for log_every_n_steps if you want to see logs for 
+the training epoch.
+Epoch 1499/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 4.000 train_loss_step: 0.145 train_f1_step:  
+                                                                                        0.897 val_loss: 0.264 val_f1: 0.815 val_acc: 0.888  
+Epoch 1499/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 4.000 train_loss_step: 0.145 train_f1_step:  
+                                                                                        0.897 val_loss: 0.264 val_f1: 0.815 val_acc: 0.888  
+                                                                                        train_loss_epoch: 0.145 train_f1_epoch: 0.897       
+                                                                                        train_acc: 0.963                                    
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃        Test metric        ┃       DataLoader 0        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│         test_acc          │     0.800000011920929     │
+│    test_acc_Excitatory    │            1.0            │
+│    test_acc_Inhibitory    │    0.6000000238418579     │
+│          test_f1          │    0.8611111044883728     │
+└───────────────────────────┴───────────────────────────┘
+Testing ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s  
+
+  ✓ r=1.5 sh=0 RESULTS:
+  Overall Acc: 0.8000, Overall F1: 0.8611
+  Per-class Accuracy:
+    Excitatory: 1.0000
+    Inhibitory: 0.6000
+------------------------------------------------------------
+
+============================================================
+  r = 2, sh = 0
+============================================================
+[1/3] Preparing dataset with r=2, sh=0 ...
+[2/3] Extracting embeddings ...                                                                                                             
+/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/data_utils/transforms.py:97: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at /pytorch/aten/src/ATen/native/ReduceOps.cpp:1857.)
+  pos_std = torch.std(pos,dim=0).clamp(min=1e-6)
+All: 100%|████████████████████████████████████████████████████████████████████████████████████████████████| 648/648 [03:22<00:00,  3.20it/s]
+  Embeddings saved → /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/embeddings/r_2_embeddings.pt
+[3/3] Training classifier ...
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━┓
+┃   ┃ Name       ┃ Type               ┃ Params ┃ Mode  ┃ FLOPs ┃
+┡━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━╇━━━━━━━┩
+│ 0 │ classifier │ LinearClassifier   │    158 │ train │     0 │
+│ 1 │ loss_fn    │ CrossEntropyLoss   │      0 │ train │     0 │
+│ 2 │ train_acc  │ MulticlassAccuracy │      0 │ train │     0 │
+│ 3 │ val_acc    │ MulticlassAccuracy │      0 │ train │     0 │
+│ 4 │ test_acc   │ MulticlassAccuracy │      0 │ train │     0 │
+│ 5 │ train_f1   │ MulticlassF1Score  │      0 │ train │     0 │
+│ 6 │ val_f1     │ MulticlassF1Score  │      0 │ train │     0 │
+│ 7 │ test_f1    │ MulticlassF1Score  │      0 │ train │     0 │
+└───┴────────────┴────────────────────┴────────┴───────┴───────┘
+Trainable params: 158                                                                                                                       
+Non-trainable params: 0                                                                                                                     
+Total params: 158                                                                                                                           
+Total estimated model params size (MB): 0                                                                                                   
+Modules in train mode: 12                                                                                                                   
+Modules in eval mode: 0                                                                                                                     
+Total FLOPs: 0                                                                                                                              
+/home/eugen/miniforge3/envs/torch_5060/lib/python3.12/site-packages/pytorch_lightning/utilities/_pytree.py:21: `isinstance(treespec, 
+LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+/home/eugen/miniforge3/envs/torch_5060/lib/python3.12/site-packages/pytorch_lightning/loops/fit_loop.py:317: The number of training batches 
+(1) is smaller than the logging interval Trainer(log_every_n_steps=50). Set a lower value for log_every_n_steps if you want to see logs for 
+the training epoch.
+Epoch 1499/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 3.000 train_loss_step: 0.168 train_f1_step:  
+                                                                                        0.865 val_loss: 0.160 val_f1: 0.910 val_acc: 0.910  
+Epoch 1499/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 3.000 train_loss_step: 0.168 train_f1_step:  
+                                                                                        0.865 val_loss: 0.160 val_f1: 0.910 val_acc: 0.910  
+                                                                                        train_loss_epoch: 0.168 train_f1_epoch: 0.865       
+                                                                                        train_acc: 0.899                                    
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃        Test metric        ┃       DataLoader 0        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│         test_acc          │    0.8999999761581421     │
+│    test_acc_Excitatory    │            1.0            │
+│    test_acc_Inhibitory    │     0.800000011920929     │
+│          test_f1          │    0.9374021887779236     │
+└───────────────────────────┴───────────────────────────┘
+Testing ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s  
+
+  ✓ r=2 sh=0 RESULTS:
+  Overall Acc: 0.9000, Overall F1: 0.9374
+  Per-class Accuracy:
+    Excitatory: 1.0000
+    Inhibitory: 0.8000
+------------------------------------------------------------
+
+============================================================
+  r = 3, sh = 0
+============================================================
+[1/3] Preparing dataset with r=3, sh=0 ...
+[2/3] Extracting embeddings ...                                                                                                             
+/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/data_utils/transforms.py:97: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at /pytorch/aten/src/ATen/native/ReduceOps.cpp:1857.)
+  pos_std = torch.std(pos,dim=0).clamp(min=1e-6)
+All: 100%|████████████████████████████████████████████████████████████████████████████████████████████████| 648/648 [02:30<00:00,  4.31it/s]
+  Embeddings saved → /home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/embeddings/r_3_embeddings.pt
+[3/3] Training classifier ...
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━┓
+┃   ┃ Name       ┃ Type               ┃ Params ┃ Mode  ┃ FLOPs ┃
+┡━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━╇━━━━━━━┩
+│ 0 │ classifier │ LinearClassifier   │    158 │ train │     0 │
+│ 1 │ loss_fn    │ CrossEntropyLoss   │      0 │ train │     0 │
+│ 2 │ train_acc  │ MulticlassAccuracy │      0 │ train │     0 │
+│ 3 │ val_acc    │ MulticlassAccuracy │      0 │ train │     0 │
+│ 4 │ test_acc   │ MulticlassAccuracy │      0 │ train │     0 │
+│ 5 │ train_f1   │ MulticlassF1Score  │      0 │ train │     0 │
+│ 6 │ val_f1     │ MulticlassF1Score  │      0 │ train │     0 │
+│ 7 │ test_f1    │ MulticlassF1Score  │      0 │ train │     0 │
+└───┴────────────┴────────────────────┴────────┴───────┴───────┘
+Trainable params: 158                                                                                                                       
+Non-trainable params: 0                                                                                                                     
+Total params: 158                                                                                                                           
+Total estimated model params size (MB): 0                                                                                                   
+Modules in train mode: 12                                                                                                                   
+Modules in eval mode: 0                                                                                                                     
+Total FLOPs: 0                                                                                                                              
+/home/eugen/miniforge3/envs/torch_5060/lib/python3.12/site-packages/pytorch_lightning/utilities/_pytree.py:21: `isinstance(treespec, 
+LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+/home/eugen/miniforge3/envs/torch_5060/lib/python3.12/site-packages/pytorch_lightning/loops/fit_loop.py:317: The number of training batches 
+(1) is smaller than the logging interval Trainer(log_every_n_steps=50). Set a lower value for log_every_n_steps if you want to see logs for 
+the training epoch.
+Epoch 1285/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.318 train_f1_step:  
+                                                                                        0.859 val_loss: 0.159 val_f1: 0.819 v
+Epoch 1285/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.318 train_f1_step:  
+                                                                                        0.859 val_loss: 0.159 val_f1: 0.819 val_acc: 0.819  
+                                                                                        train_loss_epoch: 0.250 train_f1_epoc
+Epoch 1285/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.318 train_f1_step:  
+                                                                                        0.859 val_loss: 0.159 val_f1: 0.819 val_acc: 0.819  
+Epoch 1286/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.318 train_f1_step:  
+                                                                                        0.859 val_loss: 0.159 val_f1: 0.819 val_acc: 0.819  
+Epoch 1286/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.318 train_f1_step:  
+                                                                                        0.859 val_loss: 0.159 val_f1: 0.819 val_acc: 0.819  
+Epoch 1286/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.263 train_f1_step:  
+                                                                                        0.835 val_loss: 0.159 val_f1: 0.819 val_acc: 0.819  
+Epoch 1286/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.263 train_f1_step:  
+                                                                                        0.835 val_loss: 0.159 val_f1: 0.819 val_acc: 0.819  
+Epoch 1286/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.263 train_f1_step:  
+                                                                                        0.835 val_loss: 0.159 val_f1: 0.819 val_acc: 0.819  
+Epoch 1286/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.263 train_f1_step:  
+                                                                                        0.835 val_loss: 0.159 val_f1: 0.819 val_acc: 0.819  
+                                                                                        train_loss_epoch: 0.318 train_f1_epoc
+Epoch 1286/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.263 train_f1_step:  
+                                                                                        0.835 val_loss: 0.159 val_f1: 0.819 val_acc: 0.819  
+Epoch 1298/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.268    
+                                                                                      train_f1_step: 0.817 val_loss: 0.157   
+Epoch 1298/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.268    
+                                                                                      train_f1_step: 0.817 val_loss: 0.157   
+                                                                                      val_f1: 0.819 val_acc: 0.819           
+Epoch 1298/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.268    
+                                                                                      train_f1_step: 0.817 val_loss: 0.157   
+                                                                                      val_f1: 0.819 val_acc: 0.819      
+Epoch 1299/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.268    
+                                                                                      train_f1_step: 0.817 val_loss: 0.157   
+                                                                                      val_f1: 0.819 val_acc: 0.819      
+Epoch 1299/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 0/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.268    
+                                                                                      train_f1_step: 0.817 val_loss: 0.157   
+                                                                                      val_f1: 0.819 val_acc: 0.819      
+Epoch 1499/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.185 
+                                                                                    train_f1_step: 0.865 val_loss: 0.155
+Epoch 1499/1499 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s v_num: 2.000 train_loss_step: 0.185 
+                                                                                    train_f1_step: 0.865 val_loss: 0.155
+                                                                                    val_f1: 0.819 val_acc: 0.819        
+                                                                                    train_loss_epoch: 0.185             
+                                                                                    train_f1_epoch: 0.865 train_acc:    
+                                                                                    0.931                               
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃        Test metric        ┃       DataLoader 0        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│         test_acc          │     0.985714316368103     │
+│    test_acc_Excitatory    │    0.9714285731315613     │
+│    test_acc_Inhibitory    │            1.0            │
+│          test_f1          │    0.9472991228103638     │
+└───────────────────────────┴───────────────────────────┘
+Testing ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1/1 0:00:00 • 0:00:00 0.00it/s  
+
+  ✓ r=3 sh=0 RESULTS:
+  Overall Acc: 0.9857, Overall F1: 0.9473
+  Per-class Accuracy:
+    Excitatory: 0.9714
+    Inhibitory: 1.0000
+------------------------------------------------------------
+
+
+============================================================
+  SUMMARY
+============================================================
+         r        sh    test_acc     test_f1
+  ────────  ────────  ──────────  ──────────
+         0      0.00      0.9857      0.9473
+         1      0.00      0.9000      0.9374
+       1.5      0.00      0.8000      0.8611
+         2      0.00      0.9000      0.9374
+         3      0.00      0.9857      0.9473
+============================================================
+(torch_5060) eugen@eugen-DRB-P:~/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor$ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+_-_-----------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+=========================================================
+  r = 1, sh = 0
+============================================================
+[1/3] Preparing dataset with r=1, sh=0 ...
+[2/3] Extracting embeddings ...
+[3/3] Training classifier ...
+/home/eugen/miniforge3/envs/torch_5060/lib/python3.12/site-packages/sklearn/linear_model/_logistic.py:1135: FutureWarning: 'penalty' was deprecated in version 1.8 and will be removed in 1.10. To avoid this warning, leave 'penalty' set to its default value and use 'l1_ratio' or 'C' instead. Use l1_ratio=0 instead of penalty='l2', l1_ratio=1 instead of penalty='l1', and C=np.inf instead of penalty=None.
+  warnings.warn(
+  [Sklearn] Val Acc: 0.3247, Val F1: 0.2745
+
+  ✓ r=1 sh=0 RESULTS:
+  Overall Acc: 0.4250, Overall F1: 0.5302
+  Per-class Accuracy:
+    23P       : 0.3333
+    4P        : 0.4286
+    5P-IT     : 1.0000
+    5P-PT     : 1.0000
+    6P-CT     : 0.5000
+    6P-IT     : 0.1111
+    BC        : 1.0000
+    BPC       : 0.5000
+
+  Train Confusion Matrix (True \ Predicted):
+              23P     4P  5P-IT  5P-NP  5P-PT  6P-CT  6P-IT     BC    BPC     MC    NGC
+       23P     37      4      2      0      0      5      5      0      2      0      0
+        4P      4     30      4      1      0     11     15      0      0      0      2
+     5P-IT      0      2     22      0      0      3      1      0      0      0      0
+     5P-NP      0      0      0      2      0      0      0      0      0      0      0
+     5P-PT      0      0      0      0      4      0      0      0      0      0      0
+     6P-CT      6      3      2      0      0     18      3      0      1      0      0
+     6P-IT      7      5      4      0      0      5     25      0      1      1      0
+        BC      0      0      0      0      0      0      0      5      0      0      0
+       BPC      0      0      0      0      0      0      0      0     14      0      0
+        MC      0      0      0      0      0      0      0      0      0      8      0
+       NGC      0      0      0      0      0      0      0      0      0      0      8
+
+  Validation Confusion Matrix (True \ Predicted):
+              23P     4P  5P-IT  5P-NP  5P-PT  6P-CT  6P-IT     BC    BPC     MC    NGC
+       23P      7      2      1      0      0      4      3      0      1      0      0
+        4P      8      7      4      0      0      2      0      0      1      0      0
+     5P-IT      0      1      4      0      0      2      5      0      1      0      0
+     5P-NP      0      1      0      0      0      0      0      0      0      0      0
+     5P-PT      0      0      0      0      0      0      0      0      0      0      0
+     6P-CT      4      0      0      0      0      1      4      0      0      0      0
+     6P-IT      1      1      0      0      0      2      4      0      0      0      0
+        BC      0      0      0      0      0      0      0      1      0      1      0
+       BPC      0      2      0      0      0      0      0      0      1      0      0
+        MC      0      0      0      0      0      0      0      0      1      0      0
+       NGC      0      0      0      0      0      0      0      0      0      0      0
+
+  Test Confusion Matrix (True \ Predicted):
+              23P     4P  5P-IT  5P-NP  5P-PT  6P-CT  6P-IT     BC    BPC     MC    NGC
+       23P      3      3      1      0      0      0      1      0      1      0      0
+        4P      1      3      0      0      0      3      0      0      0      0      0
+     5P-IT      0      0      3      0      0      0      0      0      0      0      0
+     5P-NP      0      0      0      0      0      0      0      0      0      0      0
+     5P-PT      0      0      0      0      1      0      0      0      0      0      0
+     6P-CT      1      0      1      0      0      3      1      0      0      0      0
+     6P-IT      4      3      1      0      0      0      1      0      0      0      0
+        BC      0      0      0      0      0      0      0      1      0      0      0
+       BPC      0      0      0      0      0      1      0      1      2      0      0
+        MC      0      0      0      0      0      0      0      0      0      0      0
+       NGC      0      0      0      0      0      0      0      0      0      0      0
+------------------------------------------------------------
+
+
+============================================================
+  SUMMARY
+============================================================
+         r        sh    test_acc     test_f1
+  ────────  ────────  ──────────  ──────────
+============================================================
+(torch_5060) eugen@eugen-DRB-P:~/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor$ 
+
+
+
+

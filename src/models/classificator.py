@@ -19,11 +19,9 @@ class LinearClassifier(nn.Module):
     def __init__(self, in_channels: int, num_classes: int):
         super().__init__()
         self.head = nn.Sequential(
-            nn.LayerNorm(in_channels),
-            nn.Dropout(0.3), # Strong dropout for regularization on 41 training samples
-            nn.Linear(in_channels, in_channels),
-            nn.ReLU(),
-            nn.Linear(in_channels, num_classes)
+            # nn.LayerNorm(in_channels),
+            # nn.Dropout(0.3),
+            nn.Linear(in_channels, num_classes),
 
         )
     def forward(self, embed: torch.Tensor) -> torch.Tensor:
@@ -48,7 +46,7 @@ class ClassifierLightModule(L.LightningModule):
         self.encoder_graph.requires_grad_ = False
         self.classifier = classifier
         self.learning_rate = learning_rate
-        self.loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([1., 1.0]),reduction='none')
+        self.loss_fn = nn.CrossEntropyLoss(reduction='none')
         self.optimizer_cfg = cfg.optimizer
         self.scheduler_cfg = cfg.get("scheduler", None)
         self._test_preds = []
