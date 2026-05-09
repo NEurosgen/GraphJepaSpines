@@ -134,74 +134,8 @@ class LeJEPA(nn.Module):
 
 
 
-class GraphJepa(nn.Module):
-    def __init__(
-        self, 
-        encoder: nn.Module, 
-        predictor: nn.Module,
-
-        ema: float = 0.996,
-        **kwargs
-    ):
-        super().__init__()
-        
-
-        self.ema = ema
-        
-        
-        if hasattr(encoder, 'proj'):
-            in_channels = encoder.proj.in_features
-        elif hasattr(encoder, 'in_channels'):
-            in_channels = encoder.in_channels
-        else:
-            in_channels = 128
-        
-        self.mask_token = nn.Parameter(torch.zeros(1, in_channels))
-        nn.init.normal_(self.mask_token, std=0.02)
-        
-
-        self.student_encoder = encoder
-        self.teach_encoder = copy.deepcopy(encoder)
-        for p in self.teach_encoder.parameters():
-            p.requires_grad = False
-        
-        self.predictor = predictor
-        self.loss_fn = nn.MSELoss()
-    
-    @torch.no_grad()
-    def _ema(self):
-        """Exponential moving average update for teacher encoder."""
-        for params_s, params_t in zip(
-            self.student_encoder.parameters(), 
-            self.teach_encoder.parameters()
-        ):
-            params_t.data.mul_(self.ema).add_((1 - self.ema) * params_s.data)
-    def encode(self, x, edge_index, edge_attr):
-        return self.student_encoder(x, edge_index, edge_attr) 
-    def forward(self, context, target):
-
-        
-
-        context_enc = self.student_encoder(context.x, context.edge_index, context.edge_attr)
-        
-        with torch.no_grad():
-            teacher_enc = self.teach_encoder(target.x, target.edge_index, target.edge_attr)
-        
-        # Predictor uses context embeddings + positions to predict target embeddings
-        pred = self.predictor(
-            context_emb=context_enc,
-            context_pos=context.pos,
-            target_pos=target.pos
-        )
-
-    
-        loss = self.loss_fn(pred, teacher_enc.detach())
-        
-        return loss
-
-
 class JepaLight(L.LightningModule):
-    def __init__(self, cfg, model: GraphJepa = None, debug: bool = False, **kwargs):
+    def __init__(self, cfg, model: LeJEPA = None, debug: bool = False, **kwargs):
         super().__init__()
         self.save_hyperparameters("cfg")
         self.debug = debug
