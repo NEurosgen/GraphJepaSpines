@@ -298,11 +298,27 @@ import torch
 import pytorch_lightning as L
 import gc
 import numpy as np
-from src.models.classificator import LinearClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, f1_score
 import numpy as np
+from torch import nn
+
+class LinearClassifier(nn.Module):
+    """Simple linear probe on top of frozen graph embeddings."""
+
+    def __init__(self, in_channels: int, num_classes: int):
+        super().__init__()
+        self.head = nn.Sequential(
+            # nn.LayerNorm(in_channels),
+            # nn.Dropout(0.3),
+            nn.Linear(in_channels, num_classes),
+
+        )
+    def forward(self, embed: torch.Tensor) -> torch.Tensor:
+        return self.head(embed)
+
+
 def train_classifier(cfg, emb_data, r_val, sh_val=0.0):
     """Trains a linear classifier using scikit-learn analytical solvers with data scaling."""
     cls_cfg = cfg.classifier

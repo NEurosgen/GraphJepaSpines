@@ -1,31 +1,12 @@
 import torch
 from torch import nn
 import pytorch_lightning as L
-
-from torch_geometric.nn import global_add_pool
-
 from sklearn.metrics import f1_score as sklearn_f1_score
 
 import torch.optim as optim
 from omegaconf import OmegaConf
 torch.set_float32_matmul_precision('high')
 
-
-# ─── Model ────────────────────────────────────────────────────────────────
-
-class LinearClassifier(nn.Module):
-    """Simple linear probe on top of frozen graph embeddings."""
-
-    def __init__(self, in_channels: int, num_classes: int):
-        super().__init__()
-        self.head = nn.Sequential(
-            # nn.LayerNorm(in_channels),
-            # nn.Dropout(0.3),
-            nn.Linear(in_channels, num_classes),
-
-        )
-    def forward(self, embed: torch.Tensor) -> torch.Tensor:
-        return self.head(embed)
 
 
 # ─── Lightning Module ─────────────────────────────────────────────────────

@@ -1,10 +1,13 @@
 import torch
 from torch import nn
+import copy
+import pytorch_lightning as L
+from torch_geometric.nn import global_add_pool 
+from omegaconf import OmegaConf
+from torch_geometric.utils import scatter
+from src.representation.estimators import CompositeEstimator
+import torch.optim as optim
 
-
-
-from torch_geometric.data import Data
-from hydra.utils import instantiate
 
 class CrossAttentionPredictor(nn.Module):
     """
@@ -17,7 +20,7 @@ class CrossAttentionPredictor(nn.Module):
     def __init__(self, hidden_dim: int, pos_dim: int = 3, num_heads: int = 4, dropout: float = 0.1):
         super().__init__()
         self.hidden_dim = hidden_dim
-        self.pos_embed = nn.Linear(pos_dim, hidden_dim) # Так а это как то не хорошо
+        self.pos_embed = nn.Linear(pos_dim, hidden_dim) # Вроде норм
         self.cross_attn = nn.MultiheadAttention(
             embed_dim=hidden_dim, 
             num_heads=num_heads, 
@@ -125,8 +128,7 @@ class LeJEPA(nn.Module):
         loss = (1 - self.lambd) * loss_fn + self.lambd * loss_reg
         
         return loss
-from typing import Callable, Optional
-import copy
+
 
 
 
@@ -196,7 +198,7 @@ class GraphJepa(nn.Module):
         loss = self.loss_fn(pred, teacher_enc.detach())
         
         return loss
-import pytorch_lightning as L
+
 
 class JepaLight(L.LightningModule):
     def __init__(self, cfg, model: GraphJepa = None, debug: bool = False, **kwargs):
@@ -259,7 +261,7 @@ class JepaLight(L.LightningModule):
     
     def _apply_rbf(self, batch):
         if batch.edge_attr is not None and batch.edge_attr.numel() > 0:
-            from torch_geometric.utils import scatter
+            
             edge_batch = batch.batch[batch.edge_index[0]]
             min_vals = scatter(batch.edge_attr, edge_batch, dim=0, reduce='min')
             shifted = batch.edge_attr - min_vals[edge_batch]
@@ -270,7 +272,7 @@ class JepaLight(L.LightningModule):
     def _compute_representation_metrics(self):
         if self.repr_dataloader is None:
             return {}
-        from torch_geometric.nn import global_add_pool #можно заменить на add но сомнительно
+        
         embeddings_list = []
         
         for batch in self.repr_dataloader:
@@ -278,7 +280,7 @@ class JepaLight(L.LightningModule):
             edge_attr = batch.edge_attr
             if edge_attr is not None and edge_attr.numel() > 0:
                 # Shift by min per-graph to ensure positive distances
-                from torch_geometric.utils import scatter
+                
                 edge_batch = batch.batch[batch.edge_index[0]]
                 min_vals = scatter(edge_attr, edge_batch, dim=0, reduce='min')
                 shifted = edge_attr - min_vals[edge_batch]
@@ -298,7 +300,7 @@ class JepaLight(L.LightningModule):
             data['labels'] = self.repr_labels
         
 
-        from src.representation.estimators import CompositeEstimator
+        
         
         if self.estimator_cfg is not None:
             estimator_names = self.estimator_cfg.get('estimators', ['rank_me', 'isotropy', 'uniformity'])
@@ -354,16 +356,13 @@ class JepaLight(L.LightningModule):
 
     
     def configure_optimizers(self):
-        from hydra.utils import instantiate
-        from omegaconf import OmegaConf
-        
         params = list(self.model.parameters())
         
 
         opt_cfg = OmegaConf.to_container(self.optimizer_cfg, resolve=True)
         opt_target = opt_cfg.pop('_target_')
         
-        import torch.optim as optim
+        
         optimizer_class = getattr(optim, opt_target.split('.')[-1])
         optimizer = optimizer_class(params, lr=self.learning_rate, **opt_cfg)
         

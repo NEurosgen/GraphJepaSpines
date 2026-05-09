@@ -172,8 +172,23 @@ class EmbeddingsLightModule(L.LightningModule):
 # ──────────────────────────────────────────────────────────
 #  Step 3: Cross-Validation Loop
 # ──────────────────────────────────────────────────────────
+from torch import nn
+class LinearClassifier(nn.Module):
+    """Simple linear probe on top of frozen graph embeddings."""
+
+    def __init__(self, in_channels: int, num_classes: int):
+        super().__init__()
+        self.head = nn.Sequential(
+            # nn.LayerNorm(in_channels),
+            # nn.Dropout(0.3),
+            nn.Linear(in_channels, num_classes),
+
+        )
+    def forward(self, embed: torch.Tensor) -> torch.Tensor:
+        return self.head(embed)
+
+
 def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor):
-    from src.models.classificator import LinearClassifier
 
     cls_cfg = cfg.classifier
     num_classes = cls_cfg.get("num_classes", 2)

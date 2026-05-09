@@ -3,8 +3,20 @@ import hydra
 from omegaconf import DictConfig
 import pytorch_lightning as L
 from torch.utils.data import TensorDataset, DataLoader
+from torch import nn
+class LinearClassifier(nn.Module):
+    """Simple linear probe on top of frozen graph embeddings."""
 
-from src.models.classificator import LinearClassifier, ClassifierLightModule
+    def __init__(self, in_channels: int, num_classes: int):
+        super().__init__()
+        self.head = nn.Sequential(
+            # nn.LayerNorm(in_channels),
+            # nn.Dropout(0.3),
+            nn.Linear(in_channels, num_classes),
+
+        )
+    def forward(self, embed: torch.Tensor) -> torch.Tensor:
+        return self.head(embed)
 
 def pool_by_segment(embeddings, labels, segment_ids, pooling_type="mean"):
     """
