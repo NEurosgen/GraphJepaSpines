@@ -19,3 +19,6 @@ global_explainer.py
 
 embeddings/
 representation/
+
+crash_tests/
+

@@ -369,11 +369,8 @@ def main(cfg: DictConfig):
 
     log_dir = cfg.get("log_dir", "lightning_logs")
     #encoders = discover_encoder_folders(log_dir)
-    encoders = [(0, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_0_sh_0/version_2"),
-                (1, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1_sh_0/version_1"),
+    encoders = [
                 (1.5, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_0/version_1"),
-                (2, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_2_sh_0/version_1"),
-                (3, 0,"/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_3_sh_0/version_0"),
                 ]
                 
     if not encoders:
@@ -384,10 +381,8 @@ def main(cfg: DictConfig):
     for r_val, sh_val, folder in encoders:
         print(f"  r={r_val:>6}  →  {folder}")
     print()
-
+    
     summary = []
-
-# Замените цикл for r_val, sh_val, encoder_folder in encoders: на этот:
 
     for r_val, sh_val, encoder_folder in encoders:
         print("=" * 60)
@@ -396,7 +391,7 @@ def main(cfg: DictConfig):
         
         print(f"[1/3] Preparing dataset with r={r_val}, sh={sh_val} ...")
         prepare_dataset_for_r(cfg, r_val, sh_val)
-
+        return 0 
         OmegaConf.set_struct(cfg, False)
         cfg.classifier.checkpoint_path = encoder_folder
         OmegaConf.set_struct(cfg, True)

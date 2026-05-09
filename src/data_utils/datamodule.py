@@ -166,8 +166,8 @@ def make_minnie65_class_getter(csv_path: str) -> Callable:
     mapping = {row['segment_id']: row['cell_type'] for _, row in df.iterrows()}
     
     class_map = {
-        '23P': 0, '4P': 0, '5P-IT': 1, '5P-NP': 1, '5P-PT': 1,
-        '6P-CT': 1, '6P-IT': 1, #'BC': 7, 'BPC': 8, 'MC': 9, 'NGC': 10
+        '23P': 0, '4P': 0, '5P-IT': 0, '5P-NP': 0, '5P-PT': 0,
+        '6P-CT': 0, '6P-IT': 0, 'BC': 1, 'BPC': 1, 'MC': 1, 'NGC': 1
     }
     
     def get_class(file_path: Path, out=None, **kwargs) -> torch.Tensor:
@@ -185,6 +185,7 @@ def make_minnie65_class_getter(csv_path: str) -> Callable:
             segment_id = match.group(0)
             
         if segment_id not in mapping:
+            print(f"Segment {segment_id} not in mapping!")
             # If not in CSV, return -1 (to be filtered out)
             return torch.tensor(-1, dtype=torch.long)
             
