@@ -11,7 +11,7 @@ from omegaconf import DictConfig
 from hydra.utils import instantiate
 from ..models.loader_model import load_encoder_from_folder
 from ..models.jepa import JepaLight
-from ..data_utils.datamodule import GraphDataModule, GraphDataSet, make_folder_class_getter, make_minnie65_class_getter
+from ..data_utils.datamodule import GraphDataModule, GraphDataSet
 from ..data_utils.transforms import (
     GenNormalize,
     NormNoEps,

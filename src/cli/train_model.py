@@ -18,7 +18,31 @@ from ..data_utils.transforms import (
     ConcatStructuralPE
 )
 from ..models.jepa import JepaLight
+def make_folder_class_getter(folder_to_label: Dict[str, int]) -> Callable:
+    """
+    Создаёт get_class функцию, которая определяет класс графа
+    по имени родительской папки.
 
+    Args:
+        folder_to_label: маппинг имя_папки -> числовой_label.
+            Сравнение регистронезависимое.
+            Пример: {"ab": 0, "wt": 1}
+
+    Returns:
+        Callable[[Path], torch.Tensor]: функция file_path -> label tensor
+    """
+    mapping = {k.lower(): v for k, v in folder_to_label.items()}
+
+    def get_class(file_path: Path, **kwargs) -> torch.Tensor:
+        folder_name = Path(file_path).parent.name.lower()
+        if folder_name not in mapping:
+            raise ValueError(
+                f"Folder '{folder_name}' not in mapping {mapping}. "
+                f"File: {file_path}"
+            )
+        return torch.tensor(mapping[folder_name], dtype=torch.long)
+
+    return get_class
 
 torch.set_float32_matmul_precision('high')
 

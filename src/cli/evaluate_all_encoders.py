@@ -17,7 +17,7 @@ from torch.utils.data import TensorDataset, DataLoader
 
 from src.models.loader_model import load_encoder_from_folder
 from src.models.encoder import GraphLatent
-from src.data_utils.datamodule import GraphDataSet, make_minnie65_class_getter
+from src.data_utils.datamodule import GraphDataSet
 from src.data_utils.transforms import (
     GraphPruning, LaplacianPE, CentralityEncoding, RandomWalkPE, LocalPos,
     GenNormalize, FeatureShuffling
@@ -36,6 +36,9 @@ import numpy as np
 # ──────────────────────────────────────────────────────────
 #  Helper: find all pretrained encoder folders
 # ──────────────────────────────────────────────────────────
+
+
+
 def discover_encoder_folders(log_dir: str):
     """
     Scans log_dir for folders matching 'jepa_r_*'.
@@ -77,8 +80,48 @@ def discover_encoder_folders(log_dir: str):
         results.append((r_val, sh_val, str(latest)))
 
     return results
-
-
+import pandas as pd 
+from typing import Optional, Callable, Dict
+def make_minnie65_class_getter(csv_path: str) -> Callable:
+    """
+    Создаёт функцию для определения класса графа по segment_id 
+    для датасета minnie65. Неизвестные классы мапятся в -1.
+    """
+    df = pd.read_csv(csv_path)
+    df = df.dropna(subset=['segment_id', 'cell_type'])
+    mapping = {str(int(row['segment_id'])): row['cell_type'] for _, row in df.iterrows()}
+    
+    class_map = {
+        '23P': 0, '4P': 0, '5P-IT': 0, '5P-NP': 0, '5P-PT': 0,
+        '6P-CT': 0, '6P-IT': 0, 'BC': 1, 'BPC': 1, 'MC': 1, 'NGC': 1
+    }
+    
+    def get_class(file_path: Path, out=None, **kwargs) -> torch.Tensor:
+        segment_id = None
+        if out is not None and hasattr(out, 'segment_id') and isinstance(out.segment_id, str):
+            match = re.search(r'\d+', out.segment_id)
+            if match:
+                segment_id = match.group(0)
+                
+        if segment_id is None:
+            filename = Path(file_path).name
+            match = re.search(r'\d+', filename)
+            if not match:
+                raise ValueError(f"Could not find segment_id in filename: {filename}")
+            segment_id = match.group(0)
+            
+        if segment_id not in mapping:
+            # If not in CSV, return -1 (to be filtered out)
+            return torch.tensor(-1, dtype=torch.long)
+            
+        cell_type = mapping[segment_id]
+        if cell_type not in class_map:
+            # Unknown cell type, return -1
+            return torch.tensor(-1, dtype=torch.long)
+            
+        return torch.tensor(class_map[cell_type], dtype=torch.long)
+        
+    return get_class
 # ──────────────────────────────────────────────────────────
 #  Step 1: Prepare dataset for a given r and shuffle_ratio
 # ──────────────────────────────────────────────────────────

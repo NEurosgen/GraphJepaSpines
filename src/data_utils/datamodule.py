@@ -1,4 +1,4 @@
-import torch_geometric
+
 
 import pytorch_lightning as pl
 from typing import Optional, Callable, Dict
@@ -18,7 +18,6 @@ class GraphDataSet(Dataset):
         super().__init__(None, None) 
         self.my_transform = transform
         self.path = Path(path)
-        # Рекурсивный поиск .pt файлов (поддержка подпапок вроде ab/, wt/)
         self.file_paths = sorted(self.path.rglob('*.pt'))
         self.get_class = get_class
         self.cache = dict()
@@ -130,70 +129,6 @@ class GraphDataModule(pl.LightningDataModule):
                            collate_fn=self.collate_fn)
 
 
-def make_folder_class_getter(folder_to_label: Dict[str, int]) -> Callable:
-    """
-    Создаёт get_class функцию, которая определяет класс графа
-    по имени родительской папки.
-
-    Args:
-        folder_to_label: маппинг имя_папки -> числовой_label.
-            Сравнение регистронезависимое.
-            Пример: {"ab": 0, "wt": 1}
-
-    Returns:
-        Callable[[Path], torch.Tensor]: функция file_path -> label tensor
-    """
-    mapping = {k.lower(): v for k, v in folder_to_label.items()}
-
-    def get_class(file_path: Path, **kwargs) -> torch.Tensor:
-        folder_name = Path(file_path).parent.name.lower()
-        if folder_name not in mapping:
-            raise ValueError(
-                f"Folder '{folder_name}' not in mapping {mapping}. "
-                f"File: {file_path}"
-            )
-        return torch.tensor(mapping[folder_name], dtype=torch.long)
-
-    return get_class
 
 
-def make_minnie65_class_getter(csv_path: str) -> Callable:
-    """
-    Создаёт функцию для определения класса графа по segment_id 
-    для датасета minnie65. Неизвестные классы мапятся в -1.
-    """
-    df = pd.read_csv(csv_path)
-    df = df.dropna(subset=['segment_id', 'cell_type'])
-    mapping = {str(int(row['segment_id'])): row['cell_type'] for _, row in df.iterrows()}
-    
-    class_map = {
-        '23P': 0, '4P': 0, '5P-IT': 0, '5P-NP': 0, '5P-PT': 0,
-        '6P-CT': 0, '6P-IT': 0, 'BC': 1, 'BPC': 1, 'MC': 1, 'NGC': 1
-    }
-    
-    def get_class(file_path: Path, out=None, **kwargs) -> torch.Tensor:
-        segment_id = None
-        if out is not None and hasattr(out, 'segment_id') and isinstance(out.segment_id, str):
-            match = re.search(r'\d+', out.segment_id)
-            if match:
-                segment_id = match.group(0)
-                
-        if segment_id is None:
-            filename = Path(file_path).name
-            match = re.search(r'\d+', filename)
-            if not match:
-                raise ValueError(f"Could not find segment_id in filename: {filename}")
-            segment_id = match.group(0)
-            
-        if segment_id not in mapping:
-            # If not in CSV, return -1 (to be filtered out)
-            return torch.tensor(-1, dtype=torch.long)
-            
-        cell_type = mapping[segment_id]
-        if cell_type not in class_map:
-            # Unknown cell type, return -1
-            return torch.tensor(-1, dtype=torch.long)
-            
-        return torch.tensor(class_map[cell_type], dtype=torch.long)
-        
-    return get_class
+
