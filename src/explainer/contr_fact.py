@@ -34,81 +34,62 @@ def main(cfg: DictConfig):
         sigma=cls_cfg.get("sigma", 1.0)
     ).to(device)
 
-    feature_ig_sum = defaultdict(lambda: 0.0)
+    feature_saliency_sum = defaultdict(lambda: 0.0)
     samples_count = defaultdict(int)
     num_samples_to_explain = cls_cfg.get("num_samples_to_explain", 50)
     
-    m_steps = 50 
-    
-    print(f"Computing Integrated Gradients for {num_samples_to_explain} samples...")
+    print(f"Computing Gradient Saliency (Sensitivity Analysis) for {num_samples_to_explain} samples...")
     for i in range(min(len(ds), num_samples_to_explain)):
         data = ds[i].to(device)
         global_feats = extract_macro_features(data, macro_mean, macro_std)
         true_class = data.y.item() if hasattr(data, 'y') else 0 
         target_class = 1 - true_class 
         
-        baseline_x = torch.zeros_like(data.x, device=device)
-        integrated_grads = torch.zeros_like(data.x, device=device)
+        data.x.requires_grad_()
+        model_wrapper.zero_grad()
         
         global_feats_broadcasted = global_feats.expand(data.x.size(0), -1)
+        x_combined = torch.cat([data.x, global_feats_broadcasted], dim=-1)
         
-        for k in range(1, m_steps + 1):
-            alpha = k / m_steps
-            interpolated_x = baseline_x + alpha * (data.x - baseline_x)
-            interpolated_x.requires_grad_()
-            
-            model_wrapper.zero_grad()
-            
-            x_combined = torch.cat([interpolated_x, global_feats_broadcasted], dim=-1)
-            
-            logits = model_wrapper(
-                x=x_combined, 
-                edge_index=data.edge_index, 
-                edge_attr=data.edge_attr
-            )
-            
-            target_logit = logits[0, target_class]
-            target_logit.backward()
-            
-            integrated_grads += interpolated_x.grad
-            
-        avg_grads = integrated_grads / m_steps
-        ig = (data.x - baseline_x) * avg_grads
+        logits = model_wrapper(
+            x=x_combined, 
+            edge_index=data.edge_index, 
+            edge_attr=data.edge_attr
+        )
         
-        node_ig_importance = ig.abs().mean(dim=0).cpu()
+        target_logit = logits[0, target_class]
+        target_logit.backward()
         
-        std_padded = torch.ones_like(node_ig_importance)
-        num_stats = min(std_x_data.size(0), node_ig_importance.size(0))
-        std_padded[:num_stats] = std_x_data[:num_stats]
+        node_attribution = data.x * data.x.grad
         
-        node_ig_real = node_ig_importance * std_padded
+        graph_saliency = node_attribution.abs().mean(dim=0).cpu()
         
-        feature_ig_sum[true_class] += node_ig_real
+        feature_saliency_sum[true_class] += graph_saliency
         samples_count[true_class] += 1
-        
+
     os.makedirs("explanations", exist_ok=True)
     set_neurips_style()
     
-    for cls_idx in feature_ig_sum.keys():
+    for cls_idx in feature_saliency_sum.keys():
         if samples_count[cls_idx] == 0:
             continue
             
-        mean_ig = (feature_ig_sum[cls_idx] / samples_count[cls_idx]).numpy()
+        mean_saliency = (feature_saliency_sum[cls_idx] / samples_count[cls_idx]).detach().numpy()
         
         plt.figure(figsize=(10, 6))
-        top_k = min(20, len(mean_ig))
-        indices = np.argsort(mean_ig)[-top_k:] 
-        plt.barh(range(top_k), mean_ig[indices], align='center', color='#1f77b4')
+        top_k = min(20, len(mean_saliency))
+        indices = np.argsort(mean_saliency)[-top_k:] 
+        plt.barh(range(top_k), mean_saliency[indices], align='center', color='#1f77b4')
         plt.yticks(range(top_k), [feature_name(idx) for idx in indices])
         
-        plt.xlabel('Integrated Gradient Attribution (Real Units Scale)')
-        plt.title(f'IG Feature Attribution for shifting class {cls_idx} -> {1 - cls_idx}')
+        plt.xlabel('Gradient Sensitivity (Impact of feature change in real units)')
+        plt.title(f'Feature Sensitivity for shifting class {cls_idx} -> {1 - cls_idx}')
         plt.tight_layout()
         
-        save_path = f"explanations/ig_real_units_class_{cls_idx}.png"
+        save_path = f"explanations/saliency_real_units_class_{cls_idx}_sph.png"
         plt.savefig(save_path)
         plt.close()
-        print(f"IG attribution graph for class {cls_idx} saved to: {save_path}")
+        print(f"Saliency graph for class {cls_idx} saved to: {save_path}")
 
 if __name__ == "__main__":
     main()

@@ -56,27 +56,88 @@ def load_encoder_from_folder(folder_path):
     else:
         return jepa_model
 
+class FlexibleClassifier(nn.Module):
+    """
+    Classifier head that dynamically reconstructs its architecture from a
+    checkpoint state_dict. Supports both simple Linear-only heads and heads
+    containing LayerNorm + Linear + ReLU combinations.
+    
+    Usage::
+
+        classifier = FlexibleClassifier.from_state_dict(state_dict, prefix="classifier.head.")
+    """
+
+    def __init__(self, layers: list[nn.Module]):
+        super().__init__()
+        self.head = nn.Sequential(*layers)
+
+    def forward(self, embed: torch.Tensor) -> torch.Tensor:
+        return self.head(embed)
+
+    @classmethod
+    def from_state_dict(cls, state_dict: dict, prefix: str = "classifier.head.") -> "FlexibleClassifier":
+        """
+        Infer the Sequential architecture from weight keys in *state_dict*.
+
+        Handles three layer types based on weight tensor shape:
+          - 2-D  ``(out, in)``  → ``nn.Linear``
+          - 1-D  ``(dim,)``     → ``nn.LayerNorm``
+          - key gap (no weight) → ``nn.ReLU``
+        """
+        indices: set[int] = set()
+        for key in state_dict:
+            if key.startswith(prefix):
+                part = key[len(prefix):].split(".")[0]
+                if part.isdigit():
+                    indices.add(int(part))
+
+        if not indices:
+            raise ValueError(
+                f"No classifier head layers found with prefix '{prefix}' in state_dict. "
+                f"Available keys: {[k for k in state_dict if 'classifier' in k]}"
+            )
+
+        layers: list[nn.Module] = []
+        for i in range(max(indices) + 1):
+            w_key = f"{prefix}{i}.weight"
+            if w_key in state_dict:
+                shape = state_dict[w_key].shape
+                if len(shape) == 1:
+                    # LayerNorm stores weight as 1-D tensor of (normalized_shape,)
+                    layers.append(nn.LayerNorm(shape[0]))
+                elif len(shape) == 2:
+                    layers.append(nn.Linear(shape[1], shape[0]))
+                else:
+                    raise ValueError(f"Unexpected weight shape {shape} for key {w_key}")
+            else:
+                # No weight at this index → non-parametric layer (ReLU, Dropout, etc.)
+                layers.append(nn.ReLU())
+
+        return cls(layers)
+
+
 def load_classifier(folder_path):
+    """
+    Load a ``ClassifierLightModule`` checkpoint from *folder_path*.
+    
+    Automatically detects whether the classifier head is a simple Linear layer
+    or a more complex Sequential (e.g. LayerNorm → Linear → ReLU → Linear)
+    and reconstructs it accordingly.
+    """
     latest_checkpoint = _get_latest_checkpoint(folder_path=folder_path)
     
     ckpt = torch.load(latest_checkpoint, map_location="cpu", weights_only=False)
     state_dict = ckpt["state_dict"]
     
-    # Infer dimensions from either new or old checkpoint structures
-    if "classifier.head.0.weight" in state_dict:
-        in_channels = state_dict["classifier.head.0.weight"].shape[1]
-        bias_keys = sorted([k for k in state_dict.keys() if "classifier.head" in k and "bias" in k])
-        num_classes = state_dict[bias_keys[-1]].shape[0] if bias_keys else 2
-    elif "classifier.fd.0.weight" in state_dict:
-        in_channels = state_dict["classifier.fd.0.weight"].shape[1]
-        last_bias = [k for k in state_dict if "fd" in k and "bias" in k]
-        num_classes = state_dict[sorted(last_bias)[-1]].shape[0] if last_bias else 2
+    # Determine which key prefix the classifier uses
+    if any(k.startswith("classifier.head.") for k in state_dict):
+        classifier_head = FlexibleClassifier.from_state_dict(state_dict, prefix="classifier.head.")
+    elif any(k.startswith("classifier.fd.") for k in state_dict):
+        classifier_head = FlexibleClassifier.from_state_dict(state_dict, prefix="classifier.fd.")
     else:
-        # Fallback
-        in_channels = 64
-        num_classes = 2
+        # Fallback: simple linear
+        classifier_head = LinearClassifier(in_channels=64, num_classes=2)
         
-    classifier_head = LinearClassifier(in_channels=in_channels, num_classes=num_classes)
     dummy_encoder = nn.Identity()
     
     model = ClassifierLightModule.load_from_checkpoint(
