@@ -5,39 +5,42 @@ from omegaconf import DictConfig
 import pytorch_lightning as L
 import torch
 from hydra.utils import instantiate
-from ..data_utils.datamodule import GraphDataModule, GraphDataSet
-
-from ..data_utils.transforms import (
+from ...data_utils.datamodule import GraphDataModule, GraphDataSet
+from ...data_utils.transforms import (
     GenNormalize, 
     create_mask_collate_fn,
     MaskData,
-    build_transforms
+    preprocess_dataset
     
 )
-from ..data_utils.stats import load_stats
-from ..models.jepa import JepaLight
+from pathlib import Path
+from ...models.jepa import JepaLight
 
 
 torch.set_float32_matmul_precision('high')
 
 
 def get_datamodule(cfg):
-    mean_x, std_x, mean_edge, std_edge = load_stats(cfg.dataset.stats_path)
-    
-    transforms = build_transforms(cfg, mean_x, std_x, mean_edge, std_edge)
-    
-    static_transform = GenNormalize(transforms=transforms, mask_transform=None)
+    input_path = Path(cfg.dataset.raw_path)
+    output_path = Path(cfg.dataset.path)
+
+    if not output_path.exists() or not any(output_path.rglob("*.pt")):
+        print("Preprocessed dataset not found, running preprocessing...")
+        preprocess_dataset(cfg, input_path, output_path)
+
     mask_transform = MaskData(mask_ratio=cfg.mask_ratio)
     dyn_transform = GenNormalize(transforms=[], mask_transform=mask_transform)
-    
     collate_fn = create_mask_collate_fn(dyn_transform)
-    save_cache = cfg.dataset.get('save_cache', True)
-    
-    ds = GraphDataSet(path=cfg.dataset.path, transform=static_transform, save_cache=save_cache)
+
+    ds = GraphDataSet(
+        path=output_path,
+        transform=None,  
+        save_cache=cfg.dataset['save_cache']
+    )
     datamodule = GraphDataModule(
-        ds, 
+        ds,
         cfg.batch_size,
-        num_workers=cfg.num_workers, 
+        num_workers=cfg.num_workers,
         seed=cfg.seed,
         ratio=cfg.ratio,
         collate_fn=collate_fn

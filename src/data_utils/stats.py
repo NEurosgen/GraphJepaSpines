@@ -51,6 +51,8 @@ def extract_macro_features(data, macro_mean, macro_std):
 
 def load_stats(path):
     path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Stats file not found: {path}")
     mean_x = torch.load(path/"means.pt", map_location='cpu' , weights_only=True)
     std_x = torch.load(path/"stds.pt", map_location='cpu',weights_only=True)
     mean_edge = torch.load(path/"mean_edge.pt", map_location='cpu',weights_only=True)
