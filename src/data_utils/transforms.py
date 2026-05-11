@@ -2,7 +2,7 @@ import torch_geometric
 import torch
 import torch.nn as nn
 from torch_geometric.nn import knn_graph, radius_graph
-
+from structural_stats import ThesisMacroMetrics
 
 def fast_normalization_by_features(data, eps=1e-6):
     """
@@ -468,3 +468,25 @@ class GaussianPositionNoise(torch.nn.Module):
             noise = torch.randn_like(data.pos) * self.sigma
             data.pos = data.pos + noise
         return data
+
+
+def build_transforms(cfg, mean_x, std_x, mean_edge, std_edge):
+    """
+    Build transforms config.
+    """
+    transforms = []
+    
+    features = cfg.get('features', None)
+    if features is not None:
+        features = list(features)
+        transforms.append(FeatureChoice(feature=features))
+        mean_x = mean_x[features]
+        std_x = std_x[features]
+    
+    transforms.append(NormNoEps(mean=mean_x, std=std_x, eps=cfg.get('eps', 1e-6)))
+    transforms.append(EdgeNorm(mean=mean_edge, std=std_edge))
+    transforms.append(LocalPos())
+    transforms.append(ThesisMacroMetrics())
+    transforms.append(ConcatStructuralPE())
+    
+    return transforms

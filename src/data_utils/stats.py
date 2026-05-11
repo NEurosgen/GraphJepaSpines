@@ -1,5 +1,6 @@
 import torch
 import random
+from pathlib import Path
 
 def compute_macro_stats(dataset, max_samples=2000):
     """Computes mean and std of macro_metrics dynamically over the dataset."""
@@ -46,3 +47,13 @@ def extract_macro_features(data, macro_mean, macro_std):
         macro_features = torch.zeros((1, 7), dtype=torch.float32, device=data.x.device)
         
     return macro_features
+
+
+def load_stats(path):
+    path = Path(path)
+    mean_x = torch.load(path/"means.pt", map_location='cpu' , weights_only=True)
+    std_x = torch.load(path/"stds.pt", map_location='cpu',weights_only=True)
+    mean_edge = torch.load(path/"mean_edge.pt", map_location='cpu',weights_only=True)
+    std_edge = torch.load(path/"std_edge.pt", map_location='cpu',weights_only=True)
+    return mean_x, std_x, mean_edge, std_edge
+
