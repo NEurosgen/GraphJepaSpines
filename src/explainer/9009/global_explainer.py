@@ -15,7 +15,7 @@ from src.explainer.visuals import feature_name, set_neurips_style
 from src.explainer.models import GraphExplainerWrapper
 import matplotlib.patches as mpatches
 
-@hydra.main(version_base="1.3", config_path="../../configs", config_name="config")
+@hydra.main(version_base="1.3", config_path="../../../configs", config_name="config")
 def main(cfg: DictConfig):
     cls_cfg = cfg.classifier
     
@@ -96,7 +96,7 @@ def main(cfg: DictConfig):
             
         aggregated_importance = class_feature_importances[cls_idx] / class_weights_sum[cls_idx]
         aggregated_importance = aggregated_importance.numpy()
-        
+        #### ТУТ ТОЖЕ НАДО ИЗ ПАКЕТА ЗАМЕНИТЬ
         plt.figure(figsize=(10, 6))
         top_k = min(20, len(aggregated_importance))
         indices = np.argsort(aggregated_importance)[-top_k:]

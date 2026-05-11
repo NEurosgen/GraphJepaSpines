@@ -19,5 +19,5 @@ embeddings/
 representation/
 
 experiments_shufle/
-
+.pytest*
 TODO.md
