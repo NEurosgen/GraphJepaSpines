@@ -1,8 +1,17 @@
-import torch_geometric
-import torch
 import torch.nn as nn
 from torch_geometric.nn import knn_graph, radius_graph
-
+from src.data_utils.structural_stats import ThesisMacroMetrics
+from pathlib import Path
+from tqdm import tqdm
+from omegaconf import DictConfig
+from ..data_utils.stats import load_stats
+import torch
+from torch_geometric.data import Data
+from torch_geometric.utils import subgraph,to_scipy_sparse_matrix,to_scipy_sparse_matrix, get_laplacian
+import numpy as np
+import scipy.sparse as sp
+from torch_geometric.utils import degree
+from scipy.sparse.linalg import eigsh
 
 def fast_normalization_by_features(data, eps=1e-6):
     """
@@ -101,9 +110,7 @@ class LocalPos(torch.nn.Module):
 
 
 
-import torch
-from torch_geometric.data import Data
-from torch_geometric.utils import subgraph, k_hop_subgraph, to_undirected
+
 
 class GraphPruning(torch.nn.Module):
     '''
@@ -246,9 +253,7 @@ class LaplacianPE(torch.nn.Module):
         self.k = k
 
     def forward(self, data):
-        from torch_geometric.utils import to_scipy_sparse_matrix, get_laplacian
-        import numpy as np
-        from scipy.sparse.linalg import eigsh
+        
 
         num_nodes = data.num_nodes
         device = data.x.device
@@ -302,7 +307,7 @@ class CentralityEncoding(torch.nn.Module):
         super().__init__()
 
     def forward(self, data):
-        from torch_geometric.utils import degree
+        
 
         device = data.x.device
         num_nodes = data.num_nodes
@@ -329,8 +334,7 @@ class RandomWalkPE(torch.nn.Module):
         self.walk_length = walk_length
 
     def forward(self, data):
-        from torch_geometric.utils import to_scipy_sparse_matrix
-        import numpy as np
+
 
         num_nodes = data.num_nodes
         device = data.x.device
@@ -342,7 +346,7 @@ class RandomWalkPE(torch.nn.Module):
         nonzero = deg > 0
         deg_inv[nonzero] = 1.0 / deg[nonzero]
 
-        import scipy.sparse as sp
+        
         D_inv = sp.diags(deg_inv)
         M = D_inv @ adj  # transition matrix
 
@@ -423,14 +427,10 @@ class FeatureShuffling(torch.nn.Module):
             perm = torch.randperm(num_nodes, device=data.x.device)
             data.x = data.x[perm]
         else:
-            # Partial shuffling: select a fraction of nodes and shuffle them
             num_to_shuffle = int(num_nodes * self.ratio)
             if num_to_shuffle > 1:
-                # Get random indices to shuffle
                 indices = torch.randperm(num_nodes, device=data.x.device)[:num_to_shuffle]
-                # Create a permutation for these indices
                 shuffled_indices = indices[torch.randperm(num_to_shuffle, device=data.x.device)]
-                # Apply shuffling
                 data.x[indices] = data.x[shuffled_indices].clone()
         
         return data
@@ -468,3 +468,57 @@ class GaussianPositionNoise(torch.nn.Module):
             noise = torch.randn_like(data.pos) * self.sigma
             data.pos = data.pos + noise
         return data
+
+
+def build_transforms(cfg, mean_x, std_x, mean_edge, std_edge):
+    """
+    Build transforms config.
+    """
+    transforms = []
+    
+    features = cfg.get('features', None)
+    if features is not None:
+        features = list(features)
+        transforms.append(FeatureChoice(feature=features))
+        mean_x = mean_x[features]
+        std_x = std_x[features]
+    
+    transforms.append(NormNoEps(mean=mean_x, std=std_x, eps=cfg.get('eps', 1e-6)))
+    transforms.append(EdgeNorm(mean=mean_edge, std=std_edge))
+    transforms.append(LocalPos())
+    transforms.append(ThesisMacroMetrics())
+    transforms.append(ConcatStructuralPE())
+    
+    return transforms
+
+
+
+
+
+
+def preprocess_dataset(cfg: DictConfig, input_path: Path, output_path: Path) -> None:
+    """
+    Предобрабатывает датасет и сохраняет результат.
+
+    Args:
+        cfg:         конфиг секции datamodule
+        input_path:  папка с исходными .pt файлами
+        output_path: папка для сохранения предобработанных файлов
+    """
+    file_paths = sorted(input_path.rglob("*.pt"))
+    print(f"Preparing {len(file_paths)} files from {input_path}...")
+    print(f"Saving pre-processed dataset to: {output_path}")
+    mean_x, std_x, mean_edge, std_edge = load_stats(cfg.dataset.stats_path)
+    
+    transforms = build_transforms(cfg, mean_x, std_x, mean_edge, std_edge)
+    static_transform = GenNormalize(transforms=transforms, mask_transform=None)
+
+    for file_path in tqdm(file_paths):
+        data = torch.load(file_path, map_location="cpu", weights_only=False)
+        data = static_transform(data)
+
+        out_file = output_path / file_path.relative_to(input_path)
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(data, out_file)
+
+    print(f"Done! Update config 'dataset.path' to: {output_path}")

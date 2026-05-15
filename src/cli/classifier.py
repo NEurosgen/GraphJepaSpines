@@ -11,7 +11,7 @@ from omegaconf import DictConfig
 from hydra.utils import instantiate
 from ..models.loader_model import load_encoder_from_folder
 from ..models.jepa import JepaLight
-from ..data_utils.datamodule import GraphDataModule, GraphDataSet, make_folder_class_getter, make_minnie65_class_getter
+from ..data_utils.datamodule import GraphDataModule, GraphDataSet
 from ..data_utils.transforms import (
     GenNormalize,
     NormNoEps,
@@ -23,12 +23,25 @@ from .train_model import load_stats, build_transforms
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 torch.set_float32_matmul_precision('high')
-from src.models.classificator import ClassifierLightModule,LinearClassifier
+from src.models.classificator import ClassifierLightModule
 from src.models.loader_model import load_encoder_from_folder
 from src.models.encoder import GraphLatent
 
 from ..data_utils.stats import compute_macro_stats
 
+class LinearClassifier(nn.Module):
+    """Simple linear probe on top of frozen graph embeddings."""
+
+    def __init__(self, in_channels: int, num_classes: int):
+        super().__init__()
+        self.head = nn.Sequential(
+            # nn.LayerNorm(in_channels),
+            # nn.Dropout(0.3),
+            nn.Linear(in_channels, num_classes),
+
+        )
+    def forward(self, embed: torch.Tensor) -> torch.Tensor:
+        return self.head(embed)
 
 def get_class_9009(file_path, **kwargs):
 

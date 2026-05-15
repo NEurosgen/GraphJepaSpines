@@ -1,0 +1,6 @@
+d9009:
+  path_sph: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/processed_dataset_9009_sph" # путь до датасет с графами с сферическими дескрипторами
+  prepare_dataset_sph: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/processed_dataset_9009_sph_prepared" # путь до обработанного дататесата дескрипторов с ребрами и энкодингами
+  stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/" # путь до статитстик для нормализации для классических дескрипторов
+  stats_sph_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009_sph/" # путь до статитстик для нормализации для сферических дескрипторов
+  mesh_dataset_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/Archiv/9009/" # путь до датасета с мешами
