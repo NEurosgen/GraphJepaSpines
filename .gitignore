@@ -22,3 +22,5 @@ experiments_shufle/
 .pytest*
 TODO.md
 experiment/
+experiment_data/
+crash_tests/
