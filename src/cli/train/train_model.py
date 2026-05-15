@@ -53,7 +53,6 @@ def get_datamodule(cfg):
 def main(cfg: DictConfig):
     L.seed_everything(cfg.seed, workers=True)
     model = instantiate(cfg.network, _recursive_=True)
-    # Для созраняения чек поинтов стоит доабвить все таки созранение только последонего и лучше по val loss а также соранения всех гиперпараметрво по которым создаввалсь модель а также коммит который был на данный момент
     model_module = JepaLight(cfg=cfg, model=model, debug=False)
     checkpoint_callback = L.callbacks.ModelCheckpoint(
         monitor="val_loss",
