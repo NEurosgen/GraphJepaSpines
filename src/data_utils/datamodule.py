@@ -31,7 +31,7 @@ class GraphDataSet(Dataset):
     def _load_file(self, idx):
         file_path = self.file_paths[idx]
         out = torch.load(file_path, weights_only=False)
-        
+        out.path = file_path.relative_to(self.path)
         if self.get_class is not None:
             try:
                 out.y = self.get_class(file_path=file_path, out=out)

@@ -1,15 +1,11 @@
 import os
 from collections import defaultdict
-
+from paper_plots import plot_feature_importance
 import hydra
-import matplotlib.pyplot as plt
-import numpy as np
 from omegaconf import DictConfig
 import torch
-
 from src.data_utils.stats import extract_macro_features
 from src.explainer.utils import setup_explainer_environment
-from src.explainer.visuals import feature_name, set_neurips_style
 from src.explainer.models import GraphExplainerWrapper
 
 @hydra.main(version_base="1.3", config_path="../../../configs", config_name="config")
@@ -75,21 +71,18 @@ def main(cfg: DictConfig):
             continue
             
         mean_saliency = (feature_saliency_sum[cls_idx] / samples_count[cls_idx]).detach().numpy()
-        
-        plt.figure(figsize=(10, 6))
-        top_k = min(20, len(mean_saliency))
-        indices = np.argsort(mean_saliency)[-top_k:] 
-        plt.barh(range(top_k), mean_saliency[indices], align='center', color='#1f77b4')
-        plt.yticks(range(top_k), [feature_name(idx) for idx in indices])
-        
-        plt.xlabel('Gradient Sensitivity (Impact of feature change in real units)')
-        plt.title(f'Feature Sensitivity for shifting class {cls_idx} -> {1 - cls_idx}')
-        plt.tight_layout()
-        
-        save_path = f"explanations/saliency_real_units_class_{cls_idx}_sph.png"
-        plt.savefig(save_path)
-        plt.close()
-        print(f"Saliency graph for class {cls_idx} saved to: {save_path}")
+        save_path_base = f"explanations/saliency_real_units_class_{cls_idx}_sph"
+        plot_feature_importance(
+            importance_scores=mean_saliency,
+            feature_names=feature_name,
+            top_k=20,
+            xlabel='Gradient Sensitivity (Impact of feature change in real units)',
+            title=f'Feature Sensitivity for shifting class {cls_idx} -> {1 - cls_idx}',
+            save_path=save_path_base,
+            close=True
+        )
+        print(f"Saliency graph for class {cls_idx} saved to: {save_path_base}.png")
+
 
 if __name__ == "__main__":
     main()

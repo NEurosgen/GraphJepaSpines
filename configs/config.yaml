@@ -1,3 +1,7 @@
+defaults:
+  - "9009"
+  - _self_
+
 seed: 51
 
 # Network configuration
@@ -46,7 +50,7 @@ datamodule:
     _target_: src.data_utils.datamodule.GraphDataSet
     path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_prepared"
     raw_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_sph_minnie65"
-    stats_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_sph/'
+    stats_path: ${dataset.stats_sph_path}
     class_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/public_cave_ground_truth_cell_types_with_nucleus.csv'
   #features: [0,4,5,6,7,13,14,15,17,19,20]
   batch_size: 2
@@ -77,7 +81,7 @@ representation:
     - isotropy
     - uniformity
 
-  stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009/"
+  stats_path: ${dataset.stats_path}
   r: 1.5
   structural_encoding:
     laplacian_k: 0
@@ -87,10 +91,10 @@ representation:
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
   noise_sigma: 0
-  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_0_sh_0/version_2'
+  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_0/version_0'
   classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/classifier/version_64'
-  path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_prepared"
-  stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_sph/"
+  path: ${dataset.prepare_dataset_sph}
+  stats_path: ${dataset.stats_sph_path}
   num_classes: 2
   folder_to_label:
     ab: 0
@@ -106,7 +110,11 @@ classifier:
     T_max: ${classifier.max_epochs}
 
   sigma: 1.0
-  explain_sample_idx: 5
+  explain_sample_idx: 10
   extracted_embeddings_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/embeddings/minnie65_embeddings.pt"
   pooling_level: "neuron"  # 'graph' or 'neuron'
   pooling_type: "add"     # 'mean' or 'add'
+
+
+
+#Создать совместимость с конфигами для датасетов

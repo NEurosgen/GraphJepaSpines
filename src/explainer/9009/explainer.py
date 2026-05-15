@@ -1,20 +1,24 @@
 import os
 import torch
 import hydra
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 from omegaconf import DictConfig
 from torch_geometric.explain import Explainer, GNNExplainer
 from src.data_utils.stats import extract_macro_features
-from src.explainer.utils import setup_explainer_environment, load_mesh_vertices
-from src.explainer.visuals import feature_name, set_neurips_style, plot_custom_graph
+from src.explainer.utils import setup_explainer_environment
 from src.explainer.models import GraphExplainerWrapper
+import torch
+from src.data_utils.datamodule import GraphDataSet
+from src.explainer.visuals import DendriteVisualizer
 
+
+def get_mesh_path(mesh_dataset_path, data_path):
+    return os.path.join(mesh_dataset_path, data_path.split("/")[0], "output", data_path.split("/")[1][:-3], "surface_mesh.off")
 @hydra.main(version_base="1.3", config_path="../../../configs", config_name="config")
 def main(cfg: DictConfig):
     cls_cfg = cfg.classifier
     
+   
+
     env = setup_explainer_environment(cfg)
     ds = env["dataset"]
     encoder = env["encoder"]
@@ -24,8 +28,15 @@ def main(cfg: DictConfig):
     device = env["device"]
     
     sample_idx = cls_cfg.get("explain_sample_idx", 0)
-    data = ds[sample_idx].to(device)
 
+    data = ds[sample_idx].to(device)
+    
+    begin_pos  = GraphDataSet(
+        path=cfg.dataset.path_sph
+    )[sample_idx].to(device).pos
+    print(begin_pos.shape)
+    print(data.pos.shape)
+    data.pos = begin_pos
 
 
 
@@ -59,56 +70,24 @@ def main(cfg: DictConfig):
     print(f"Explaining sample {sample_idx}...")
     explanation = explainer(x=x_combined, edge_index=data.edge_index, edge_attr=data.edge_attr)
     print("Explanation computed successfully!")
-    
     os.makedirs("explanations", exist_ok=True)
-    set_neurips_style()
     
-    feat_importance = explanation.node_mask.mean(dim=0).cpu().numpy()
-    top_k = min(20, len(feat_importance))
-    indices = np.argsort(feat_importance)[-top_k:]
-    ## ЭТОТ КУСОК КОДА ЗАМЕНИТЬ ИСПОЛЬЗОВАТЬ ВСТРОЕННЫЙ ПАКЕТ
-    plt.figure(figsize=(10, 6))
-    colors = ['#1f77b4' if idx < num_node_features else '#ff7f0e' for idx in indices]
-    plt.barh(range(top_k), feat_importance[indices], align='center', color=colors)
-    plt.yticks(range(top_k), [feature_name(idx, num_node_features) for idx in indices])
-    plt.xlabel('Attribute Importance')
-    plt.title('Feature Importance')
-    
-    node_patch = mpatches.Patch(color='#1f77b4', label='Local Node Feature')
-    macro_patch = mpatches.Patch(color='#ff7f0e', label='Macro Feature')
-    plt.legend(handles=[node_patch, macro_patch], loc='lower right')
-    
-    plt.tight_layout()
-    plt.savefig("explanations/feature_importance_sph.png")
-    plt.close()
-    ### ВОТ ПО СЮДА
-    print("Feature importance graph saved to: explanations/feature_importance_sph.png")
-    # Не до конца опнимаю зачем нужен mesh_path
-    mesh_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/Archiv/processed_dataset/ab/ab24-1_processed.pt"
-    if os.path.exists(mesh_path):
-        mesh_points = load_mesh_vertices(mesh_path)
-    else:
-        mesh_points = None
-        
-    plot_custom_graph(
-        data=data,
-        node_mask=None,
-        edge_mask=None,
-        save_path="explanations/original_graph_sph.png",
-        title="Original Graph Structure",
-        mesh_data=mesh_points
-    )
-    print("Original graph saved to: explanations/original_graph_sph.png")
 
-    plot_custom_graph(
-        data=data,
+    mesh_geometry_path = os.path.join(cfg.dataset.mesh_dataset_path, str(data.path).split("/")[0], "output", str(data.path).split("/")[1][:-3], "surface_mesh.off")
+    visualizer = DendriteVisualizer(
+        mesh_path=mesh_geometry_path if os.path.exists(mesh_geometry_path) else None, 
+        graph_data=data
+    )
+
+    html_out_path = "explanations/graph_explanation_sph_3d.html"
+    visualizer.plot(
         node_mask=explanation.node_mask,
         edge_mask=explanation.edge_mask,
-        save_path="explanations/graph_explanation_sph.png",
-        title="Explanation (Important Nodes & Edges)",
-        mesh_data=mesh_points
+        show=False,
+        html_path=html_out_path
     )
-    print("Graph explanation saved to: explanations/graph_explanation_sph.png")
+    
+    print(f"3D Feature importance graph saved to: {html_out_path}")
 
 if __name__ == "__main__":
     main()

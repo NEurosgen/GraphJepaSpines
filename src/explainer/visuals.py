@@ -1,165 +1,148 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import networkx as nx
-import matplotlib.patches as mpatches
 from sklearn.decomposition import PCA
+import trimesh
+import plotly.graph_objects as go
 
-def feature_name(idx, num_node_features=0):
-    local_names = [
-        'head_area', 'head_bbox_max', 'head_bbox_middle', 'head_bbox_min',
-        'head_skeletal_length', 'head_volume', 'head_width_ray', 'head_width_ray_80_perc',
-        'neck_area', 'neck_bbox_max', 'neck_bbox_middle', 'neck_bbox_min',
-        'neck_skeletal_length', 'neck_volume', 'neck_width_ray', 'neck_width_ray_80_perc',
-        'spine_bbox_volume', 'spine_n_faces', 'spine_sdf_mean', 'spine_skeletal_length',
-        'spine_volume'
-    ]
-    if idx < num_node_features:
-        if idx < len(local_names):
-            return local_names[idx]
-        return f"Node Feature {idx}"
-    
-    macro_idx = idx - num_node_features
-    return f"Macro Feature {macro_idx}"
 
-def set_neurips_style():
-    plt.rcParams.update({
-        "font.family": "serif",
-        "font.serif": ["Times New Roman", "DejaVu Serif"],
-        "font.size": 12,
-        "axes.titlesize": 14,
-        "axes.labelsize": 12,
-        "legend.fontsize": 10,
-        "xtick.labelsize": 10,
-        "ytick.labelsize": 10,
-        "figure.dpi": 300,
-        "savefig.dpi": 300,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "axes.grid": True,
-        "grid.alpha": 0.3,
-        "grid.linestyle": "--"
-    })
 
-def get_best_projection(pos_np):
-    """Находит лучшую 2D проекцию через PCA"""
-    pca = PCA(n_components=2)
-    xy = pca.fit_transform(pos_np)
-    print(f"PCA explained variance: {pca.explained_variance_ratio_}")
-    return xy
 
-def plot_custom_graph(data, node_mask=None, edge_mask=None, 
-                      save_path="graph.png", title="Graph",
-                      mesh_data=None):
-    set_neurips_style()
-    data = data.cpu()
-    
-    G = nx.Graph()
-    for i in range(data.num_nodes):
-        G.add_node(i)
+
+class DendriteVisualizer:
+    def __init__(self, mesh_path=None, graph_data=None):
+        self.mesh = None
+        self.graph_data = graph_data
         
-    edge_index = data.edge_index.cpu().numpy()
-    
-    if edge_mask is not None:
-        edge_mask_np = edge_mask.cpu().numpy()
-        if len(edge_mask_np) > 0 and edge_mask_np.max() > 0:
-            edge_mask_np = edge_mask_np / edge_mask_np.max()
-    else:
-        edge_mask_np = np.ones(data.num_edges)
+        if mesh_path and not mesh_path.endswith('.pt'):
+            self.load_mesh(mesh_path)
+            
+    def load_mesh(self, mesh_path):
+        self.mesh = trimesh.load(mesh_path)
+        return self.mesh
         
-    for j in range(data.num_edges):
-        u, v = edge_index[0, j], edge_index[1, j]
-        weight = edge_mask_np[j]
-        if G.has_edge(u, v):
-            G[u][v]['weight'] = max(G[u][v]['weight'], weight)
+    def create_mesh_trace(self, opacity=0.2, color='lightgrey'):
+        if self.mesh is None:
+            return None
+            
+        vertices = self.mesh.vertices
+        faces = self.mesh.faces
+        
+        return go.Mesh3d(
+            x=vertices[:, 0],
+            y=vertices[:, 1],
+            z=vertices[:, 2],
+            i=faces[:, 0],
+            j=faces[:, 1],
+            k=faces[:, 2],
+            opacity=opacity,
+            color=color,
+            name='Dendrite Mesh',
+            hoverinfo='none'
+        )
+        
+    def create_graph_traces(self, node_mask=None, edge_mask=None):
+        if self.graph_data is None:
+            return []
+            
+        pos = self.graph_data.pos.cpu().numpy()
+        x_nodes, y_nodes, z_nodes = pos[:, 0], pos[:, 1], pos[:, 2]
+        
+        if node_mask is not None:
+            if node_mask.dim() > 1:
+                node_importance = node_mask.mean(dim=1).cpu().numpy()
+            else:
+                node_importance = node_mask.cpu().numpy()
+                
+            if node_importance.size > 0 and node_importance.max() > 0:
+                node_importance = node_importance / node_importance.max()
+                
+            marker_size = 4 + 10 * node_importance
+            marker_color = node_importance
+            colorscale = 'Reds'
+            showscale = True
+            texts = [f'Node {i}<br>Imp: {val:.3f}' for i, val in enumerate(node_importance)]
         else:
-            G.add_edge(u, v, weight=weight)
-    
-    # --- Позиции узлов из data.pos ---
-    if hasattr(data, 'pos') and data.pos is not None:
-        pos_np = data.pos.cpu().numpy()
-        
-        # PCA проекция
-        xy = get_best_projection(pos_np)
-        
-        # Нормализация
-        xy_min = xy.min(axis=0)
-        xy_max = xy.max(axis=0)
-        xy_range = xy_max - xy_min
-        xy_range[xy_range == 0] = 1
-        xy_norm = (xy - xy_min) / xy_range
-        
-        pos = {i: xy_norm[i] for i in range(data.num_nodes)}
-    else:
-        pos = nx.spring_layout(G, seed=42)
-        xy_norm = None
-    
-    fig, ax = plt.subplots(figsize=(8, 6))
-    ax.set_title(title)
-    
-    # --- Рисуем точки меша как фон ---
-    if mesh_data is not None:
-        mesh_np = mesh_data if isinstance(mesh_data, np.ndarray) else mesh_data.numpy()
-        mesh_xy = mesh_np[:, :2]
-        
-        mesh_xy_norm = (mesh_xy - xy_min) / xy_range
-        
-        ax.scatter(
-            mesh_xy_norm[:, 0], mesh_xy_norm[:, 1],
-            c='lightblue', s=0.5, alpha=0.3, zorder=1,
-            label='Mesh vertices'
+            marker_size = 5
+            marker_color = 'red'
+            colorscale = None
+            showscale = False
+            texts = [f'Node {i}' for i in range(len(pos))]
+
+        nodes_trace = go.Scatter3d(
+            x=x_nodes, y=y_nodes, z=z_nodes,
+            mode='markers',
+            marker=dict(
+                size=marker_size,
+                color=marker_color,
+                colorscale=colorscale,
+                showscale=showscale,
+                colorbar=dict(title="Node<br>Importance", x=0.85) if showscale else None,
+                symbol='circle',
+                line=dict(width=0)
+            ),
+            name='Spine Nodes',
+            text=texts,
+            hoverinfo='text'
         )
-    elif hasattr(data, 'pos') and data.pos is not None:
-        ax.scatter(
-            xy_norm[:, 0], xy_norm[:, 1],
-            c='lightgray', s=80, alpha=0.4, zorder=1,
-            marker='*', label='Spine centers'
-        )
-    
-    # --- Рисуем граф поверх ---
-    if node_mask is not None:
-        node_importance = node_mask.sum(dim=-1).cpu().numpy()
-        if node_importance.max() > 0:
-            node_importance = node_importance / node_importance.max()
-    else:
-        node_importance = np.ones(data.num_nodes)
         
-    edge_weights = [G[u][v]['weight'] for u, v in G.edges()] if G.edges() else []
-    
-    if node_mask is None and edge_mask is None:
-        nx.draw(
-            G, pos, ax=ax,
-            node_color='#1f77b4',
-            edge_color='gray',
-            node_size=200,
-            with_labels=False,
+        edges = self.graph_data.edge_index.cpu().numpy()
+        edge_traces = []
+        
+        if edge_mask is not None:
+            edge_importance = edge_mask.cpu().numpy()
+            if edge_importance.size > 0 and edge_importance.max() > 0:
+                edge_importance = edge_importance / edge_importance.max()
+        else:
+            edge_importance = np.ones(edges.shape[1])
+
+        for i in range(edges.shape[1]):
+            src, dst = edges[:, i]
+            w = edge_importance[i]
+            
+            if edge_mask is not None and w < 0.05:
+                continue
+                
+            line_width = 1 + 5 * w if edge_mask is not None else 2
+            alpha = max(0.2, w) if edge_mask is not None else 1.0
+            line_color = f'rgba(255, 0, 0, {alpha})' if edge_mask is not None else 'black'
+            
+            edge_traces.append(go.Scatter3d(
+                x=[pos[src, 0], pos[dst, 0], None],
+                y=[pos[src, 1], pos[dst, 1], None],
+                z=[pos[src, 2], pos[dst, 2], None],
+                mode='lines',
+                line=dict(color=line_color, width=line_width),
+                hoverinfo='none',
+                showlegend=False
+            ))
+            
+        return edge_traces + [nodes_trace]
+        
+    def plot(self, node_mask=None, edge_mask=None, show=True, html_path=None):
+        traces = []
+        mesh_trace = self.create_mesh_trace()
+        if mesh_trace:
+            traces.append(mesh_trace)
+            
+        graph_traces = self.create_graph_traces(node_mask=node_mask, edge_mask=edge_mask)
+        traces.extend(graph_traces)
+        
+        fig = go.Figure(data=traces)
+        fig.update_layout(
+            scene=dict(
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False),
+                zaxis=dict(visible=False),
+                aspectmode='data'
+            ),
+            title="3D Explanation (Important Nodes & Edges)",
+            margin=dict(l=0, r=0, b=0, t=30),
+            showlegend=False
         )
-    else:
-        nodes = nx.draw_networkx_nodes(
-            G, pos, ax=ax,
-            node_color=node_importance,
-            cmap=plt.cm.Reds,
-            node_size=200,
-            edgecolors='black',
-            linewidths=0.5,
-        )
-        if edge_weights:
-            nx.draw_networkx_edges(
-                G, pos, ax=ax,
-                edge_color=edge_weights,
-                edge_cmap=plt.cm.Blues,
-                width=[1.0 + 3.0 * w for w in edge_weights],
-            )
-        fig.colorbar(nodes, ax=ax, label="Node Importance", 
-                    fraction=0.046, pad=0.04)
-        sm = plt.cm.ScalarMappable(
-            cmap=plt.cm.Blues, 
-            norm=plt.Normalize(vmin=0, vmax=1)
-        )
-        sm.set_array([])
-        fig.colorbar(sm, ax=ax, label="Edge Importance", 
-                    fraction=0.046, pad=0.04)
-    
-    ax.axis('off')
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300)
-    plt.close()
+        
+        if html_path:
+            fig.write_html(html_path)
+        if show:
+            fig.show()
+        return fig

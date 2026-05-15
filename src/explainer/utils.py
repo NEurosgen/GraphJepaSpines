@@ -3,7 +3,7 @@ from torch_geometric.data import Batch
 from omegaconf import DictConfig
 
 from src.data_utils.datamodule import GraphDataSet
-from src.cli.train_model import load_stats, build_transforms, make_folder_class_getter
+from src.data_utils.transforms import load_stats, build_transforms
 from src.models.loader_model import load_encoder_from_folder, load_classifier
 from src.data_utils.transforms import GenNormalize
 from src.data_utils.stats import compute_macro_stats

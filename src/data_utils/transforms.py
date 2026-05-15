@@ -1,6 +1,6 @@
 import torch.nn as nn
 from torch_geometric.nn import knn_graph, radius_graph
-from structural_stats import ThesisMacroMetrics
+from src.data_utils.structural_stats import ThesisMacroMetrics
 from pathlib import Path
 from tqdm import tqdm
 from omegaconf import DictConfig
