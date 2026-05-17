@@ -5,7 +5,6 @@ import pytorch_lightning as L
 from torch_geometric.nn import global_add_pool 
 from omegaconf import OmegaConf
 from torch_geometric.utils import scatter
-from src.representation.estimators import CompositeEstimator
 import torch.optim as optim
 
 
@@ -134,176 +133,99 @@ class LeJEPA(nn.Module):
 
 
 
+
+
 class JepaLight(L.LightningModule):
-    def __init__(self, cfg, model: LeJEPA = None, debug: bool = False, **kwargs):
+    def __init__(self, cfg, model=None, debug: bool = False, **kwargs):
         super().__init__()
         self.save_hyperparameters("cfg")
         self.debug = debug
         self.cfg = cfg.training
-     
         self.model = model
-        
-        # Store cfg parameters for optimizer configuration
+
         self.learning_rate = self.cfg.learning_rate
         self.optimizer_cfg = self.cfg.optimizer
-        self.scheduler_cfg = self.cfg.get('scheduler', None)
-        self.sigma = 1
-        
-        # Representation estimation config
-        self.repr_dataloader = kwargs.get('repr_dl', None)
-        self.estimator_cfg = kwargs.get('estimator_cfg', None)
-        self.repr_labels = kwargs.get('repr_labels', None)  # Метки для эстиматоров с supervised метриками
+        self.scheduler_cfg = self.cfg['scheduler']
 
     def _debug_log(self, batch):
-        context_x, target_x = batch
+        context_x, _ = batch
         with torch.no_grad():
             z = self.model.student_encoder(context_x.x, context_x.edge_index)
             
-            # --- Существующие метрики ---
             std_z = torch.sqrt(z.var(dim=0) + 1e-4)
             std_loss = torch.mean(torch.nn.functional.relu(2 - std_z)) 
-
-            
-            #std = z.std(dim=0).mean()
-            norm = z.norm(dim=-1).mean()
-            self.log("debug_z_std", std_z.mean(), prog_bar=True)
-            self.log("debug_z_norm", norm, prog_bar=True)
-
 
             z_centered = z - z.mean(dim=0, keepdim=True)
             _, S, _ = torch.linalg.svd(z_centered, full_matrices=False)
             
-
-            self.log("debug_svd_max", S[0], prog_bar=False)
-            
-            self.log("debug_svd_2nd", S[1], prog_bar=False)
-            self.log("debug_svd_3rd", S[2], prog_bar=False)
-            
-
-            self.log("debug_svd_min", S[-1], prog_bar=False)
+            # Группировка логирования
             p = S / (S.sum() + 1e-9)
-            entropy = -torch.sum(p * torch.log(p + 1e-9))
-            rank_me = torch.exp(entropy)
+            self.log_dict({
+                "debug_z_std": std_z.mean(),
+                "debug_z_norm": z.norm(dim=-1).mean(),
+                "debug_rank_me": torch.exp(-torch.sum(p * torch.log(p + 1e-9)))
+            }, prog_bar=True)
+
+            self.log_dict({
+                "debug_svd_max": S[0],
+                "debug_svd_2nd": S[1],
+                "debug_svd_3rd": S[2],
+                "debug_svd_min": S[-1],
+                "debug_cond_number": S[0] / (S[-1] + 1e-9)
+            }, prog_bar=False)
             
-            self.log("debug_rank_me", rank_me, prog_bar=True)
-            cond_number = S[0] / (S[-1] + 1e-9)
-            self.log("debug_cond_number", cond_number, prog_bar=False)
             return std_loss
     
     def encode(self, x, edge_index, edge_attr):
         return self.model.encode(x, edge_index, edge_attr)
     
-    def _apply_rbf(self, batch):
+    def _apply_linear_weights(self, batch):
+        """Linear transformation  (Min-Max нормализация)."""
         if batch.edge_attr is not None and batch.edge_attr.numel() > 0:
-            
             edge_batch = batch.batch[batch.edge_index[0]]
+            
             min_vals = scatter(batch.edge_attr, edge_batch, dim=0, reduce='min')
-            shifted = batch.edge_attr - min_vals[edge_batch]
-            batch.edge_attr = torch.exp(-shifted**2 / (self.sigma**2 + 1e-6))
+            max_vals = scatter(batch.edge_attr, edge_batch, dim=0, reduce='max')
+            
+            denom = (max_vals[edge_batch] - min_vals[edge_batch]).clamp_(min=1e-6)
+            batch.edge_attr = (batch.edge_attr - min_vals[edge_batch]) / denom
+            
         return batch
     
-    @torch.no_grad()
-    def _compute_representation_metrics(self):
-        if self.repr_dataloader is None:
-            return {}
-        
-        embeddings_list = []
-        
-        for batch in self.repr_dataloader:
-            batch = batch.to(self.device)
-            edge_attr = batch.edge_attr
-            if edge_attr is not None and edge_attr.numel() > 0:
-                # Shift by min per-graph to ensure positive distances
-                
-                edge_batch = batch.batch[batch.edge_index[0]]
-                min_vals = scatter(edge_attr, edge_batch, dim=0, reduce='min')
-                shifted = edge_attr - min_vals[edge_batch]
-                edge_attr = torch.exp(-shifted**2 / (self.sigma**2 + 1e-6))
-            emb = self.encode(batch.x, batch.edge_index, edge_attr)
-            if hasattr(batch, 'batch') and batch.batch is not None:
-                graph_emb = global_add_pool(emb, batch.batch)
-            else:
-                graph_emb = emb.sum(dim=0, keepdim=True)
-            embeddings_list.append(graph_emb)
-        if not embeddings_list:
-            return {}
-        all_embeddings = torch.cat(embeddings_list, dim=0)
-        
-        data = {'embedding': all_embeddings}
-        if self.repr_labels is not None:
-            data['labels'] = self.repr_labels
-        
-
-        
-        
-        if self.estimator_cfg is not None:
-            estimator_names = self.estimator_cfg.get('estimators', ['rank_me', 'isotropy', 'uniformity'])
-        else:
-            estimator_names = ['rank_me', 'isotropy', 'uniformity']
-        
-        estimator = CompositeEstimator(data, estimators=estimator_names)
-        metrics = estimator.estimate()
-        
-        return metrics
- 
-    def training_step(self, batch):
+    def _shared_step(self, batch, step_name: str):
+        """General logic training_step и validation_step."""
         context_batch, target_batch = batch
         
-        # Apply RBF kernel with shift to handle normalized (centered) edge_attr
-        context_batch = self._apply_rbf(context_batch)
-        target_batch = self._apply_rbf(target_batch)
+        context_batch = self._apply_linear_weights(context_batch)
+        target_batch = self._apply_linear_weights(target_batch)
         
-        loss = self.model(context_batch,target_batch)
-
- 
-        if self.debug:
-            std_loss=self._debug_log(batch)
-        total_loss = loss 
-        self.log("train_loss", total_loss, prog_bar=True)
-        return total_loss
-    
-    def validation_step(self, batch):
-        context_batch, target_batch = batch
+        loss = self.model(context_batch, target_batch)
+        self.log(f"{step_name}_loss", loss, prog_bar=True)
         
-        # Consistent with training_step
-        context_batch = self._apply_rbf(context_batch)
-        target_batch = self._apply_rbf(target_batch)
-        
-        loss = self.model(context_batch,target_batch)
-        self.log("val_loss", loss, prog_bar=True)
         if self.debug:
             self._debug_log(batch)
+            
         return loss
+
+    def training_step(self, batch):
+        return self._shared_step(batch, "train")
+    
+    def validation_step(self, batch):
+        return self._shared_step(batch, "val")
     
     def on_train_batch_end(self, outputs, batch, batch_idx):
         self.model._ema()
     
-    def on_validation_epoch_end(self):
-        """Вычисляет и логирует метрики representation quality в конце эпохи валидации."""
-        if self.repr_dataloader is not None:
-            metrics = self._compute_representation_metrics()
-            
-            # Логируем все метрики
-            for name, value in metrics.items():
-                if isinstance(value, (int, float)):
-                    self.log(f"repr/{name}", value, prog_bar=True)
+   
 
-    
     def configure_optimizers(self):
-        params = list(self.model.parameters())
-        
-
         opt_cfg = OmegaConf.to_container(self.optimizer_cfg, resolve=True)
-        opt_target = opt_cfg.pop('_target_')
-        
-        
-        optimizer_class = getattr(optim, opt_target.split('.')[-1])
-        optimizer = optimizer_class(params, lr=self.learning_rate, **opt_cfg)
+        optimizer_class = getattr(optim, opt_cfg.pop('_target_').split('.')[-1])
+        optimizer = optimizer_class(self.model.parameters(), lr=self.learning_rate, **opt_cfg)
         
         if self.scheduler_cfg is not None:
             sched_cfg = OmegaConf.to_container(self.scheduler_cfg, resolve=True)
-            sched_target = sched_cfg.pop('_target_')
-            scheduler_class = getattr(optim.lr_scheduler, sched_target.split('.')[-1])
+            scheduler_class = getattr(optim.lr_scheduler, sched_cfg.pop('_target_').split('.')[-1])
             scheduler = scheduler_class(optimizer, **sched_cfg)
             return {
                 "optimizer": optimizer,
