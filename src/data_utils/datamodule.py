@@ -18,7 +18,13 @@ class GraphDataSet(Dataset):
         super().__init__(None, None) 
         self.my_transform = transform
         self.path = Path(path)
+        if not self.path.exists():
+            raise FileNotFoundError(f"Path {self.path} don't exist.")
+        if not self.path.is_dir():
+            raise NotADirectoryError(f"Path {self.path} must be a directory.")
         self.file_paths = sorted(self.path.rglob('*.pt'))
+        if not self.file_paths:
+            raise FileNotFoundError(f"In the directory {self.path} and its subdirectories, no '.pt' files were found.")
         self.get_class = get_class
         self.cache = dict()
         self.save_cache = save_cache

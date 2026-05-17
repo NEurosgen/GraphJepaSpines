@@ -57,12 +57,8 @@ datamodule:
   #features: [0,4,5,6,7,13,14,15,17,19,20]
   batch_size: 1024
   num_workers: 2
-  r: 3
+  r: 1.5
   mask_ratio: 0.05
-  structural_encoding:
-    laplacian_k: 0    # 4 features
-    centrality: false     # 1 feature
-    random_walk_steps: 0  # 5 features
   seed: ${seed}
 
   ratio: [0.8,0.1, 0.1]
