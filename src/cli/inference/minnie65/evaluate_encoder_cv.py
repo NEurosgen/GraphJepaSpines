@@ -14,16 +14,18 @@ import pandas as pd
 import pytorch_lightning as L
 import torch
 from omegaconf import DictConfig
-from torchmetrics import Accuracy, F1Score
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
+from torch_geometric.nn import global_add_pool
+from torchmetrics import Accuracy, F1Score
+from src.cli.embedding_pipeline import EmbeddingExtractor, EmbeddingSet
+from src.data_utils.datamodule import GraphDataSet
+from src.data_utils.stats import compute_macro_stats
+from src.data_utils.transforms import GenNormalize
+from src.models.encoder import GraphLatent
+from src.models.loader_model import load_encoder_from_folder
 
-from src.cli.embedding_pipeline import (
-    DatamoduleConfig,
-    EmbeddingConfig,
-    EmbeddingPipeline,
-)
 torch.set_float32_matmul_precision("high")
 
 
@@ -58,25 +60,54 @@ def make_minnie65_class_getter(csv_path: str) -> Callable:
     return get_class
 
 
-def _make_pipeline_from_cfg(cfg: DictConfig) -> EmbeddingPipeline:
-    """Собирает EmbeddingPipeline из Hydra-конфига (только в точке входа)."""
+def extract_all_embeddings(cfg: DictConfig, encoder_folder: str, dataset_path: str, device: torch.device):
     cls_cfg = cfg.classifier
-    dm_cfg  = cfg.datamodule
- 
-    emb_cfg = EmbeddingConfig(
-        stats_path     = cls_cfg.stats_path,
-        class_csv_path = dm_cfg.dataset.class_path,
-        pooling_level  = cls_cfg.get("pooling_level", "graph"),
-        pooling_type   = cls_cfg.get("pooling_type", "mean"),
-        sigma          = cls_cfg.get("sigma", 1.0),
+    dm_cfg = cfg.datamodule
+
+    print(f"Loading encoder from: {encoder_folder}")
+    encoder = load_encoder_from_folder(encoder_folder)
+    encoder.eval().requires_grad_(False).to(device)
+    gen_normalize = GenNormalize(transforms=[], mask_transform=None)
+
+    get_class_fn = make_minnie65_class_getter(dm_cfg.dataset.class_path)
+
+    print(f"Loading dataset from: {dataset_path}")
+    ds = GraphDataSet(path=dataset_path, get_class=get_class_fn, transform=gen_normalize)
+
+    macro_mean, macro_std = compute_macro_stats(ds)
+    encoder_graph = GraphLatent(
+        encoder=encoder,
+        macro_mean=macro_mean,
+        macro_std=macro_std,
+        pooling=global_add_pool,
+    ).to(device)
+
+
+    extractor = EmbeddingExtractor(encoder=encoder_graph, device=device)
+    emb_set: EmbeddingSet = extractor.extract_from_graph_dataset(
+        dataset=ds,
+        batch_size=cls_cfg["batch_size"],
+        num_workers=dm_cfg.get("num_workers", 4),
+        desc="Extracting All"
     )
- 
-    # DatamoduleConfig хранит «остаток» dm_cfg как dict
-    dm_plain = DatamoduleConfig(extra=dict(dm_cfg))
- 
-    return EmbeddingPipeline(emb_cfg, dm_plain)
+
+    pooling_level = cls_cfg["pooling_level"]
+    if pooling_level == "neuron":
+        pooling_type = cls_cfg["pooling_type"]
+        print(f"Pooling level: {pooling_level}, type: {pooling_type}")
+        pooled_set = emb_set.pool_by_segment(pooling_type=pooling_type)
+    else:
+        pooled_set = emb_set
 
 
+    x_pooled, y_pooled = pooled_set.embeddings, pooled_set.labels
+
+    del encoder, encoder_graph, extractor, emb_set
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    return x_pooled, y_pooled
 
 
 class LinearClassifier(nn.Module):
@@ -91,75 +122,75 @@ class LinearClassifier(nn.Module):
 class EmbeddingsLightModule(L.LightningModule):
     def __init__(self, classifier, lr, wd, max_epochs, num_classes, class_names=None):
         super().__init__()
-        self.classifier  = classifier
-        self.lr          = lr
-        self.wd          = wd
-        self.max_epochs  = max_epochs
+        self.classifier = classifier
+        self.lr = lr
+        self.wd = wd
+        self.max_epochs = max_epochs
         self.num_classes = num_classes
         self.class_names = class_names
-        self.loss_fn     = nn.CrossEntropyLoss()
- 
-        kw = dict(task="multiclass", num_classes=num_classes)
-        self.train_acc = Accuracy(**kw, average=None)
-        self.val_acc   = Accuracy(**kw, average=None)
-        self.test_acc  = Accuracy(**kw, average=None)
-        self.train_f1  = F1Score(**kw, average="macro")
-        self.val_f1    = F1Score(**kw, average="macro")
-        self.test_f1   = F1Score(**kw, average="macro")
- 
+        self.loss_fn = nn.CrossEntropyLoss()
+
+        metric_kwargs = dict(task="multiclass", num_classes=num_classes)
+        self.train_acc = Accuracy(**metric_kwargs, average=None)
+        self.val_acc   = Accuracy(**metric_kwargs, average=None)
+        self.test_acc  = Accuracy(**metric_kwargs, average=None)
+        self.train_f1  = F1Score(**metric_kwargs, average="macro")
+        self.val_f1    = F1Score(**metric_kwargs, average="macro")
+        self.test_f1   = F1Score(**metric_kwargs, average="macro")
+
     def forward(self, x):
         return self.classifier(x)
- 
+
     def _log_class_acc(self, acc_tensor, stage):
         names = self.class_names or [f"class_{i}" for i in range(len(acc_tensor))]
         for name, val in zip(names, acc_tensor):
             self.log(f"{stage}_acc_{name}", val)
- 
+
     def training_step(self, batch, _):
-        x, y   = batch
+        x, y = batch
         logits = self(x)
-        loss   = self.loss_fn(logits, y)
-        preds  = logits.argmax(dim=1)
+        loss = self.loss_fn(logits, y)
+        preds = logits.argmax(dim=1)
         self.train_acc(preds, y)
         self.train_f1(preds, y)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log("train_f1",  self.train_f1, on_epoch=True, prog_bar=True)
+        self.log("train_f1", self.train_f1, on_epoch=True, prog_bar=True)
         return loss
- 
+
     def on_train_epoch_end(self):
         acc = self.train_acc.compute()
         self._log_class_acc(acc, "train")
         self.log("train_acc", acc.mean(), prog_bar=True)
         self.train_acc.reset()
- 
+
     def validation_step(self, batch, _):
-        x, y   = batch
+        x, y = batch
         logits = self(x)
-        preds  = logits.argmax(dim=1)
+        preds = logits.argmax(dim=1)
         self.val_acc(preds, y)
         self.val_f1(preds, y)
         self.log("val_loss", self.loss_fn(logits, y), prog_bar=True)
-        self.log("val_f1",   self.val_f1, prog_bar=True)
- 
+        self.log("val_f1", self.val_f1, prog_bar=True)
+
     def on_validation_epoch_end(self):
         acc = self.val_acc.compute()
         self._log_class_acc(acc, "val")
         self.log("val_acc", acc.mean(), prog_bar=True)
         self.val_acc.reset()
- 
+
     def test_step(self, batch, _):
-        x, y  = batch
+        x, y = batch
         preds = self(x).argmax(dim=1)
         self.test_acc(preds, y)
         self.test_f1(preds, y)
         self.log("test_f1", self.test_f1)
- 
+
     def on_test_epoch_end(self):
         acc = self.test_acc.compute()
         self._log_class_acc(acc, "test")
         self.log("test_acc", acc.mean(), prog_bar=True)
         self.test_acc.reset()
- 
+
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.wd)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.max_epochs)
@@ -169,7 +200,7 @@ class EmbeddingsLightModule(L.LightningModule):
 def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor):
     cls_cfg = cfg.classifier
     num_classes = cls_cfg.get("num_classes", 2)
-    n_splits    = cfg.get("n_splits", 3)
+    n_splits    = cfg.get("n_splits", 5)
     batch_size  = cfg.datamodule.batch_size
     max_epochs  = cls_cfg.get("max_epochs", 500)
 
@@ -245,7 +276,7 @@ def main(cfg: DictConfig):
     L.seed_everything(cfg.seed, workers=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    encoder_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/experiment/train_val/checkpoints/ep003"
+    encoder_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_0/version_1"
     dataset_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_sph_minnie65_r=1.5"
     n_splits     = cfg.get("n_splits", 5)
 
@@ -257,8 +288,7 @@ def main(cfg: DictConfig):
     print("=" * 60)
 
     print("\n[1/2] Extracting Embeddings...")
-    pipeline = _make_pipeline_from_cfg(cfg)           # ← адаптер DictConfig → dataclass
-    x_pooled, y_pooled = pipeline.run(encoder_path, dataset_path, device)
+    x_pooled, y_pooled = extract_all_embeddings(cfg, encoder_path, dataset_path, device)
     print(f"Features: {x_pooled.shape}, Labels: {y_pooled.shape}")
 
     print(f"\n[2/2] Training & Evaluating with {n_splits}-Fold CV...")

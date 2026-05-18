@@ -94,6 +94,7 @@ classifier:
   path: ${minnie65.prepare_dataset_sph}
   stats_path: ${minnie65.stats_sph_path}
   num_classes: 2
+  batch_size: 5
   folder_to_label:
     ab: 0
     wt: 1
@@ -101,11 +102,11 @@ classifier:
   weight_decay: 1e-5
   max_epochs: 150
  
-  sigma: 1.0
+
   explain_sample_idx: 10
   extracted_embeddings_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/embeddings/minnie65_embeddings.pt"
   pooling_level: "neuron"  # 'graph' or 'neuron'
-  pooling_type: "add"     # 'mean' or 'add'
+  pooling_type: "sum"     
 
 
 
