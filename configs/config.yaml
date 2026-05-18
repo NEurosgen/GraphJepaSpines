@@ -4,7 +4,7 @@ defaults:
   - _self_
 
 seed: 51
-
+log_dir : 'lightning_logs'
 # Network configuration
 network:
   _target_: src.models.jepa.LeJEPA
@@ -61,7 +61,7 @@ datamodule:
   mask_ratio: 0.05
   seed: ${seed}
 
-  ratio: [0.8,0.1, 0.1]
+  ratio: [0.6,0.1, 0.3]
 
 
 representation:
@@ -89,10 +89,10 @@ representation:
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
   noise_sigma: 0
-  checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_0/version_0'
-  classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/classifier/version_64'
-  path: ${d9009.prepare_dataset_sph}
-  stats_path: ${d9009.stats_sph_path}
+  checkpoint_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/experiment/train_val/checkpoints/ep080"
+  classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/classifier/version_71'
+  path: ${minnie65.prepare_dataset_sph}
+  stats_path: ${minnie65.stats_sph_path}
   num_classes: 2
   folder_to_label:
     ab: 0

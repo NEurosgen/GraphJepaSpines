@@ -9,8 +9,7 @@ from torch_geometric.nn import global_add_pool
 from src.models.loader_model import load_encoder_from_folder
 from src.models.encoder import GraphLatent
 from src.data_utils.datamodule import GraphDataSet
-from src.data_utils.transforms import GenNormalize
-from src.cli.train_model import load_stats, build_transforms
+from src.data_utils.transforms import GenNormalize, load_stats, build_transforms
 from src.data_utils.stats import compute_macro_stats
 from torch_geometric.data import Batch
 
@@ -152,7 +151,7 @@ def main(cfg: DictConfig):
     val_ds = ds[perm[train_size:train_size+val_size]]
     test_ds = ds[perm[train_size+val_size:]]
     
-    # Extract
+
     emb_train, y_train, seg_train = extract_from_dataset(train_ds, encoder_graph, device, "Train")
     emb_val, y_val, seg_val = extract_from_dataset(val_ds, encoder_graph, device, "Val")
     emb_test, y_test, seg_test = extract_from_dataset(test_ds, encoder_graph, device, "Test")

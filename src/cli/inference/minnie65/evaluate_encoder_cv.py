@@ -23,10 +23,9 @@ from torchmetrics import Accuracy, F1Score
 
 from src.cli.extract_embeddings import extract_from_dataset
 from src.cli.train_from_embeddings import pool_by_segment
-from src.cli.train_model import build_transforms, load_stats
 from src.data_utils.datamodule import GraphDataSet
 from src.data_utils.stats import compute_macro_stats
-from src.data_utils.transforms import GenNormalize
+from src.data_utils.transforms import GenNormalize , load_stats, build_transforms
 from src.models.encoder import GraphLatent
 from src.models.loader_model import load_encoder_from_folder
 
@@ -92,9 +91,9 @@ def extract_all_embeddings(cfg: DictConfig, encoder_folder: str, dataset_path: s
 
     emb_all, y_all, seg_all = extract_from_dataset(ds, encoder_graph, device, "All")
 
-    pooling_level = cls_cfg.get("pooling_level", "graph")
+    pooling_level = cls_cfg['pooling_level']
     if pooling_level == "neuron":
-        pooling_type = cls_cfg.get("pooling_type", "mean")
+        pooling_type = cls_cfg["pooling_type"]
         print(f"Pooling level: {pooling_level}, type: {pooling_type}")
         x_pooled, y_pooled = pool_by_segment(emb_all, y_all, seg_all, pooling_type)
     else:
@@ -198,7 +197,7 @@ class EmbeddingsLightModule(L.LightningModule):
 def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor):
     cls_cfg = cfg.classifier
     num_classes = cls_cfg.get("num_classes", 2)
-    n_splits    = cfg.get("n_splits", 5)
+    n_splits    = cfg.get("n_splits", 3)
     batch_size  = cfg.datamodule.batch_size
     max_epochs  = cls_cfg.get("max_epochs", 500)
 
@@ -269,13 +268,13 @@ def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor):
     return fold_metrics
 
 
-@hydra.main(version_base="1.3", config_path="../../../configs", config_name="config")
+@hydra.main(version_base="1.3", config_path="../../../../configs", config_name="config")
 def main(cfg: DictConfig):
     L.seed_everything(cfg.seed, workers=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    encoder_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_0/version_1"
-    dataset_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_prepared"
+    encoder_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/experiment/train_val/checkpoints/ep003"
+    dataset_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_sph_minnie65_r=1.5"
     n_splits     = cfg.get("n_splits", 5)
 
     print("=" * 60)

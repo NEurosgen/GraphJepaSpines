@@ -6,11 +6,9 @@ from torch_geometric.data import Batch
 from omegaconf import DictConfig
 
 from src.data_utils.datamodule import GraphDataSet
-from src.cli.train_model import load_stats, build_transforms, make_folder_class_getter
 from src.models.loader_model import load_encoder_from_folder
 from src.models.classificator import ClassifierLightModule
-from src.cli.classifier import LinearClassifier
-from src.data_utils.transforms import GenNormalize
+from src.data_utils.transforms import GenNormalize , load_stats, build_transforms
 from src.data_utils.stats import compute_macro_stats
 
 def _simple_collate(data_list):
