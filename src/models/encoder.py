@@ -123,7 +123,7 @@ class GraphGinEncoder(nn.Module):
             x = layer(x, edge_index, edge_weight)
         return x
 
-def linear_edge_weiting(batch):
+def linear_edge_weighting(batch):
         edge_batch = batch.batch[batch.edge_index[0]]
         min_vals = scatter(batch.edge_attr, edge_batch, dim=0, reduce='min')
         max_vals = scatter(batch.edge_attr, edge_batch, dim=0, reduce='max')
@@ -133,7 +133,7 @@ def linear_edge_weiting(batch):
         return batch
 
 class GraphLatent(nn.Module):
-    def __init__(self, encoder, macro_mean, macro_std, pooling, sigma=1):
+    def __init__(self, encoder, macro_mean, macro_std, pooling):
         super().__init__()
         self.encoder = encoder
         if macro_mean is not None:
@@ -147,10 +147,10 @@ class GraphLatent(nn.Module):
         self.pooling = pooling
     def forward(self,batch):
         with torch.no_grad():
-            self.encoder.eval()
+            self.encoder
         
             if batch.edge_attr is not None and batch.edge_attr.numel() > 0:
-                batch = linear_edge_weiting(batch=batch)
+                batch = linear_edge_weighting(batch=batch)
             
             node_emb = self.encoder(batch.x, batch.edge_index, batch.edge_attr)
             graph_emb = self.pooling(node_emb, batch.batch)
