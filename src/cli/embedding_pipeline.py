@@ -80,7 +80,7 @@ def extract_from_dataset(
             segment_ids.append(batch.segment_id[valid_mask].cpu())
             
     if len(embeddings) == 0:
-        # Корректное определение размерности пустого тензора
+
         out_channels = getattr(encoder_graph.encoder, 'out_channels', 0)
         return torch.empty((0, out_channels)), torch.empty(0), torch.empty(0)
         
@@ -101,11 +101,9 @@ class DatamoduleConfig:
 
 @dataclass
 class EmbeddingConfig:
-    stats_path: str
     class_csv_path: str
     pooling_level: Literal["neuron", "graph"] = "graph"
     pooling_type: Literal["mean", "max", "sum"] = "mean"
-    sigma: float = 1.0
     batch_size: int = 128
     num_workers: int = 4
     ignore_class: int = -1
@@ -161,7 +159,6 @@ class EmbeddingPipeline:
             macro_mean=macro_mean,
             macro_std=macro_std,
             pooling=self.emb_cfg.global_pool_fn, 
-            sigma=self.emb_cfg.sigma,
         ).to(device)
  
         return encoder, encoder_graph

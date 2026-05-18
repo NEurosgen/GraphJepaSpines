@@ -4,8 +4,7 @@ from torch_geometric.nn import GCNConv
 import torch
 import torch.nn as nn
 from torch.nn import Sequential, Linear, ReLU 
-
-
+from torch_geometric.utils import scatter
 import torch.nn.functional as F
 from torch_geometric.nn import MessagePassing
 
@@ -123,7 +122,16 @@ class GraphGinEncoder(nn.Module):
         for layer in self.layers:
             x = layer(x, edge_index, edge_weight)
         return x
-    
+
+def linear_edge_weiting(batch):
+        edge_batch = batch.batch[batch.edge_index[0]]
+        min_vals = scatter(batch.edge_attr, edge_batch, dim=0, reduce='min')
+        max_vals = scatter(batch.edge_attr, edge_batch, dim=0, reduce='max')
+        denom = (max_vals[edge_batch] - min_vals[edge_batch]).clamp_(min=1e-6)
+        batch.edge_attr = (batch.edge_attr - min_vals[edge_batch]) / denom
+            
+        return batch
+
 class GraphLatent(nn.Module):
     def __init__(self, encoder, macro_mean, macro_std, pooling, sigma=1):
         super().__init__()
@@ -137,25 +145,18 @@ class GraphLatent(nn.Module):
         else:
             self.macro_std = None
         self.pooling = pooling
-        self.sigma = sigma
     def forward(self,batch):
         with torch.no_grad():
             self.encoder.eval()
-            edge_attr = batch.edge_attr
+        
+            if batch.edge_attr is not None and batch.edge_attr.numel() > 0:
+                batch = linear_edge_weiting(batch=batch)
             
-            # Note: edge_attr may be normalized (centered). RBF expects distance-like values (>=0).
-            # We shift by the graph minimum value to ensure weights are in (0, 1] range consistently per graph.
-            if edge_attr is not None and edge_attr.numel() > 0:
-                from torch_geometric.utils import scatter
-                edge_batch = batch.batch[batch.edge_index[0]]
-                min_vals = scatter(edge_attr, edge_batch, dim=0, reduce='min')
-                edge_attr = edge_attr - min_vals[edge_batch]
-                edge_attr = torch.exp(-edge_attr ** 2 / (self.sigma ** 2 + 1e-6))
-            
-            node_emb = self.encoder(batch.x, batch.edge_index, edge_attr)
+            node_emb = self.encoder(batch.x, batch.edge_index, batch.edge_attr)
             graph_emb = self.pooling(node_emb, batch.batch)
             if self.macro_mean is not None and self.macro_std is not None:
                 thesis_macro = batch.macro_metrics
                 thesis_macro = (thesis_macro - self.macro_mean.to(thesis_macro.device)) / (self.macro_std.to(thesis_macro.device) + 1e-6)
                 graph_emb = torch.cat([graph_emb, thesis_macro], dim=-1)
         return graph_emb
+    

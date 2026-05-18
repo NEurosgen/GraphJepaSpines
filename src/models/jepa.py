@@ -1,12 +1,9 @@
 import torch
 from torch import nn
-import copy
 import pytorch_lightning as L
-from torch_geometric.nn import global_add_pool 
 from omegaconf import OmegaConf
-from torch_geometric.utils import scatter
 import torch.optim as optim
-
+from src.models.encoder import linear_edge_weiting
 
 class CrossAttentionPredictor(nn.Module):
     """
@@ -182,13 +179,7 @@ class JepaLight(L.LightningModule):
     def _apply_linear_weights(self, batch):
         """Linear transformation  (Min-Max нормализация)."""
         if batch.edge_attr is not None and batch.edge_attr.numel() > 0:
-            edge_batch = batch.batch[batch.edge_index[0]]
-            
-            min_vals = scatter(batch.edge_attr, edge_batch, dim=0, reduce='min')
-            max_vals = scatter(batch.edge_attr, edge_batch, dim=0, reduce='max')
-            
-            denom = (max_vals[edge_batch] - min_vals[edge_batch]).clamp_(min=1e-6)
-            batch.edge_attr = (batch.edge_attr - min_vals[edge_batch]) / denom
+            batch = linear_edge_weiting(batch)
             
         return batch
     
