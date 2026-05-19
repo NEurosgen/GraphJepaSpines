@@ -94,7 +94,7 @@ classifier:
   path: ${minnie65.prepare_dataset_sph}
   stats_path: ${minnie65.stats_sph_path}
   num_classes: 2
-  batch_size: 5
+  batch_size: 10
   folder_to_label:
     ab: 0
     wt: 1
