@@ -15,6 +15,93 @@ from src.data_utils.transforms import GenNormalize
 from src.data_utils.datamodule import GraphDataSet
 from src.cli.inference.minnie65.minnie65_get_class import make_minnie65_class_getter
 from torchmetrics import Accuracy, F1Score
+import gc
+from sklearn.model_selection import StratifiedKFold, train_test_split
+from torch.utils.data import DataLoader, TensorDataset
+from omegaconf import DictConfig
+
+class LinearClassifier(nn.Module):
+    def __init__(self, in_channels: int, num_classes: int):
+        super().__init__()
+        self.head = nn.Linear(in_channels, num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(x)
+
+def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor , class_names = None):
+    cls_cfg = cfg.classifier
+    num_classes = cls_cfg.get("num_classes", 2)
+    n_splits    = cfg.get("n_splits", 5)
+    batch_size  = cfg.datamodule.batch_size
+    max_epochs  = cls_cfg.get("max_epochs", 500)
+
+    skf  = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=cfg.seed)
+    x_np = x_all.cpu().numpy()
+    y_np = y_all.cpu().numpy()
+
+    fold_metrics = []
+    print(f"\nStarting {n_splits}-Fold Cross Validation...")
+
+    for fold, (train_val_idx, test_idx) in enumerate(skf.split(x_np, y_np)):
+        print(f"\n{'='*40}\n Fold {fold + 1}/{n_splits}\n{'='*40}")
+
+        train_idx, val_idx = train_test_split(
+            train_val_idx, test_size=0.1, random_state=cfg.seed, stratify=y_np[train_val_idx]
+        )
+
+        def make_loader(idx, shuffle):
+            ds = TensorDataset(x_all[idx], y_all[idx])
+            return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=2, persistent_workers=True)
+
+        train_loader = make_loader(train_idx, shuffle=True)
+        val_loader   = make_loader(val_idx,   shuffle=False)
+        test_loader  = make_loader(test_idx,  shuffle=False)
+
+        module = EmbeddingsLightModule(
+            classifier=LinearClassifier(in_channels=x_all.shape[1], num_classes=num_classes),
+            lr=cls_cfg["learning_rate"],
+            wd=cls_cfg["weight_decay"],
+            max_epochs=max_epochs,
+            num_classes=num_classes,
+            class_names=class_names,
+        )
+
+        checkpoint_cb = L.callbacks.ModelCheckpoint(
+            monitor="val_acc", mode="max", save_top_k=1,
+            filename=f"cv_fold_{fold}-{{epoch:02d}}-{{val_acc:.4f}}",
+        )
+
+        trainer = L.Trainer(
+            max_epochs=max_epochs,
+            accelerator=cfg.trainer.get("accelerator", "gpu"),
+            devices=cfg.trainer.get("devices", 1),
+            logger=L.loggers.TensorBoardLogger(
+                save_dir=cfg["log_dir"],
+                name="cv_classifier",
+                version=f"fold_{fold}",
+            ),
+            callbacks=[checkpoint_cb],
+            deterministic=True,
+            enable_progress_bar=False,
+        )
+
+        trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
+
+        print(f"Testing Fold {fold + 1} best model...")
+        results = trainer.test(module, dataloaders=test_loader, verbose=False)
+        if results:
+            fold_acc = results[0].get("test_acc", 0.0)
+            fold_f1  = results[0].get("test_f1",  0.0)
+            fold_metrics.append((fold_acc, fold_f1))
+            print(f"Fold {fold + 1} -> Accuracy: {fold_acc:.4f}, F1: {fold_f1:.4f}")
+
+        del module, trainer, checkpoint_cb
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    return fold_metrics
+
 
 
 class EmbeddingsLightModule(L.LightningModule):
@@ -191,10 +278,11 @@ class EmbeddingExtractor:
                 valid_mask = batch.y != ignore_class
                 if not valid_mask.any():
                     continue
-                    
+
                 batch = batch.to(self.device)
+                valid_mask = valid_mask.to(self.device)
                 pooled_emb = self.encoder(batch)
-                
+
                 embeddings_list.append(pooled_emb[valid_mask].cpu())
                 labels_list.append(batch.y[valid_mask].cpu())
                 
