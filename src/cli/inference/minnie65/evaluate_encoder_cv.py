@@ -4,76 +4,36 @@ then train a classifier using Stratified K-Fold Cross Validation.
 """
 
 import gc
-import re
-from pathlib import Path
-from typing import Callable
-
+import torch
 import hydra
 import numpy as np
-import pandas as pd
 import pytorch_lightning as L
-import torch
 from omegaconf import DictConfig
-from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from torch_geometric.nn import global_add_pool
-from torchmetrics import Accuracy, F1Score
-
-from src.cli.extract_embeddings import extract_from_dataset
-from src.cli.train_from_embeddings import pool_by_segment
+from src.cli.embedding_pipeline import EmbeddingExtractor, EmbeddingSet, EmbeddingsLightModule
 from src.data_utils.datamodule import GraphDataSet
 from src.data_utils.stats import compute_macro_stats
-from src.data_utils.transforms import GenNormalize , load_stats, build_transforms
+from src.data_utils.transforms import GenNormalize
 from src.models.encoder import GraphLatent
 from src.models.loader_model import load_encoder_from_folder
-
+from src.cli.inference.minnie65.minnie65_get_class import make_minnie65_class_getter
 torch.set_float32_matmul_precision("high")
 
 
-def make_minnie65_class_getter(csv_path: str) -> Callable:
-    df = pd.read_csv(csv_path).dropna(subset=["segment_id", "cell_type"])
-    mapping = {str(int(row["segment_id"])): row["cell_type"] for _, row in df.iterrows()}
-
-    class_map = {
-        "23P": 0, "4P": 0, "5P-IT": 0, "5P-NP": 0, "5P-PT": 0,
-        "6P-CT": 0, "6P-IT": 0, "BC": 1, "BPC": 1, "MC": 1, "NGC": 1,
-    }
-
-    def get_class(file_path: Path, out=None, **kwargs) -> torch.Tensor:
-        segment_id = None
-        if out is not None and hasattr(out, "segment_id") and isinstance(out.segment_id, str):
-            match = re.search(r"\d+", out.segment_id)
-            if match:
-                segment_id = match.group(0)
-
-        if segment_id is None:
-            match = re.search(r"\d+", Path(file_path).name)
-            if not match:
-                raise ValueError(f"Could not find segment_id in filename: {file_path}")
-            segment_id = match.group(0)
-
-        cell_type = mapping.get(segment_id)
-        if cell_type is None or cell_type not in class_map:
-            return torch.tensor(-1, dtype=torch.long)
-
-        return torch.tensor(class_map[cell_type], dtype=torch.long)
-
-    return get_class
 
 
-def extract_all_embeddings(cfg: DictConfig, encoder_folder: str, dataset_path: str, device):
+
+def extract_all_embeddings(cfg: DictConfig, encoder_folder: str, dataset_path: str, device: torch.device):
     cls_cfg = cfg.classifier
     dm_cfg = cfg.datamodule
 
     print(f"Loading encoder from: {encoder_folder}")
     encoder = load_encoder_from_folder(encoder_folder)
     encoder.eval().requires_grad_(False).to(device)
-
-    mean_x, std_x, mean_edge, std_edge = load_stats(cls_cfg.stats_path)
-    transforms = build_transforms(dm_cfg, mean_x, std_x, mean_edge, std_edge)
-    gen_normalize = GenNormalize(transforms=transforms, mask_transform=None)
+    gen_normalize = GenNormalize(transforms=[], mask_transform=None)
 
     get_class_fn = make_minnie65_class_getter(dm_cfg.dataset.class_path)
 
@@ -86,20 +46,29 @@ def extract_all_embeddings(cfg: DictConfig, encoder_folder: str, dataset_path: s
         macro_mean=macro_mean,
         macro_std=macro_std,
         pooling=global_add_pool,
-        sigma=cls_cfg.get("sigma", 1.0),
     ).to(device)
 
-    emb_all, y_all, seg_all = extract_from_dataset(ds, encoder_graph, device, "All")
 
-    pooling_level = cls_cfg['pooling_level']
+    extractor = EmbeddingExtractor(encoder=encoder_graph, device=device)
+    emb_set: EmbeddingSet = extractor.extract_from_graph_dataset(
+        dataset=ds,
+        batch_size=cls_cfg["batch_size"],
+        num_workers=dm_cfg.get("num_workers", 4),
+        desc="Extracting All"
+    )
+
+    pooling_level = cls_cfg["pooling_level"]
     if pooling_level == "neuron":
         pooling_type = cls_cfg["pooling_type"]
         print(f"Pooling level: {pooling_level}, type: {pooling_type}")
-        x_pooled, y_pooled = pool_by_segment(emb_all, y_all, seg_all, pooling_type)
+        pooled_set = emb_set.pool_by_segment(pooling_type=pooling_type)
     else:
-        x_pooled, y_pooled = emb_all, y_all
+        pooled_set = emb_set
 
-    del encoder, encoder_graph
+
+    x_pooled, y_pooled = pooled_set.embeddings, pooled_set.labels
+
+    del encoder, encoder_graph, extractor, emb_set
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -116,88 +85,12 @@ class LinearClassifier(nn.Module):
         return self.head(x)
 
 
-class EmbeddingsLightModule(L.LightningModule):
-    def __init__(self, classifier, lr, wd, max_epochs, num_classes, class_names=None):
-        super().__init__()
-        self.classifier = classifier
-        self.lr = lr
-        self.wd = wd
-        self.max_epochs = max_epochs
-        self.num_classes = num_classes
-        self.class_names = class_names
-        self.loss_fn = nn.CrossEntropyLoss()
-
-        metric_kwargs = dict(task="multiclass", num_classes=num_classes)
-        self.train_acc = Accuracy(**metric_kwargs, average=None)
-        self.val_acc   = Accuracy(**metric_kwargs, average=None)
-        self.test_acc  = Accuracy(**metric_kwargs, average=None)
-        self.train_f1  = F1Score(**metric_kwargs, average="macro")
-        self.val_f1    = F1Score(**metric_kwargs, average="macro")
-        self.test_f1   = F1Score(**metric_kwargs, average="macro")
-
-    def forward(self, x):
-        return self.classifier(x)
-
-    def _log_class_acc(self, acc_tensor, stage):
-        names = self.class_names or [f"class_{i}" for i in range(len(acc_tensor))]
-        for name, val in zip(names, acc_tensor):
-            self.log(f"{stage}_acc_{name}", val)
-
-    def training_step(self, batch, _):
-        x, y = batch
-        logits = self(x)
-        loss = self.loss_fn(logits, y)
-        preds = logits.argmax(dim=1)
-        self.train_acc(preds, y)
-        self.train_f1(preds, y)
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
-        self.log("train_f1", self.train_f1, on_epoch=True, prog_bar=True)
-        return loss
-
-    def on_train_epoch_end(self):
-        acc = self.train_acc.compute()
-        self._log_class_acc(acc, "train")
-        self.log("train_acc", acc.mean(), prog_bar=True)
-        self.train_acc.reset()
-
-    def validation_step(self, batch, _):
-        x, y = batch
-        logits = self(x)
-        preds = logits.argmax(dim=1)
-        self.val_acc(preds, y)
-        self.val_f1(preds, y)
-        self.log("val_loss", self.loss_fn(logits, y), prog_bar=True)
-        self.log("val_f1", self.val_f1, prog_bar=True)
-
-    def on_validation_epoch_end(self):
-        acc = self.val_acc.compute()
-        self._log_class_acc(acc, "val")
-        self.log("val_acc", acc.mean(), prog_bar=True)
-        self.val_acc.reset()
-
-    def test_step(self, batch, _):
-        x, y = batch
-        preds = self(x).argmax(dim=1)
-        self.test_acc(preds, y)
-        self.test_f1(preds, y)
-        self.log("test_f1", self.test_f1)
-
-    def on_test_epoch_end(self):
-        acc = self.test_acc.compute()
-        self._log_class_acc(acc, "test")
-        self.log("test_acc", acc.mean(), prog_bar=True)
-        self.test_acc.reset()
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.wd)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.max_epochs)
-        return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
 
 def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor):
     cls_cfg = cfg.classifier
     num_classes = cls_cfg.get("num_classes", 2)
-    n_splits    = cfg.get("n_splits", 3)
+    n_splits    = cfg.get("n_splits", 5)
     batch_size  = cfg.datamodule.batch_size
     max_epochs  = cls_cfg.get("max_epochs", 500)
 
@@ -273,7 +166,7 @@ def main(cfg: DictConfig):
     L.seed_everything(cfg.seed, workers=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    encoder_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/experiment/train_val/checkpoints/ep003"
+    encoder_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_0/version_1"
     dataset_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_sph_minnie65_r=1.5"
     n_splits     = cfg.get("n_splits", 5)
 

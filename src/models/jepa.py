@@ -1,12 +1,9 @@
 import torch
 from torch import nn
-import copy
 import pytorch_lightning as L
-from torch_geometric.nn import global_add_pool 
 from omegaconf import OmegaConf
-from torch_geometric.utils import scatter
 import torch.optim as optim
-
+from src.models.encoder import linear_edge_weighting
 
 class CrossAttentionPredictor(nn.Module):
     """
@@ -54,10 +51,10 @@ class CrossAttentionPredictor(nn.Module):
         context_key = context_emb + self.pos_embed(context_pos)
         context_val = context_emb
         # Query from target positions
-        target_query = self.mask_token + self.pos_embed(target_pos)
+        target_query_orig = self.mask_token + self.pos_embed(target_pos)
         
         # Cross-attention (add batch dimension for nn.MultiheadAttention)
-        target_query = target_query.unsqueeze(0)
+        target_query = target_query_orig.unsqueeze(0)
         context_key = context_key.unsqueeze(0)
         context_val = context_val.unsqueeze(0)
         
@@ -69,8 +66,8 @@ class CrossAttentionPredictor(nn.Module):
         attn_out = attn_out.squeeze(0)
         
         # Residual + LayerNorm + MLP
-        x = self.norm1(attn_out)
-        x = x + self.mlp(x)
+        x = target_query_orig + attn_out
+        x = x + self.mlp(self.norm1(x))
         x = self.norm2(x)
         
         return x
@@ -92,7 +89,7 @@ def sigreg(x: torch.Tensor ,num_slices: int = 256) -> torch.Tensor:
 
     err = (ecf - exp_f).abs().square().mul(exp_f)
     N = x.size(0)
-    T = torch.trapz(err,t,dim=1)*N
+    T = torch.trapezoid(err,t,dim=1)*N
     return T
 
 
@@ -122,9 +119,9 @@ class LeJEPA(nn.Module):
             context_pos=context.pos,
             target_pos=target.pos
         )
-        loss_fn = self.loss_fn(pred,target_enc)
+        loss = self.loss_fn(pred,target_enc)
         loss_reg = (torch.mean(sigreg(context_enc, self.num_slices)) + torch.mean(sigreg(target_enc, self.num_slices))) / 2
-        loss = (1 - self.lambd) * loss_fn + self.lambd * loss_reg
+        loss = (1 - self.lambd) * loss + self.lambd * loss_reg
         
         return loss
 
@@ -147,34 +144,7 @@ class JepaLight(L.LightningModule):
         self.optimizer_cfg = self.cfg.optimizer
         self.scheduler_cfg = self.cfg['scheduler']
 
-    def _debug_log(self, batch):
-        context_x, _ = batch
-        with torch.no_grad():
-            z = self.model.student_encoder(context_x.x, context_x.edge_index)
-            
-            std_z = torch.sqrt(z.var(dim=0) + 1e-4)
-            std_loss = torch.mean(torch.nn.functional.relu(2 - std_z)) 
-
-            z_centered = z - z.mean(dim=0, keepdim=True)
-            _, S, _ = torch.linalg.svd(z_centered, full_matrices=False)
-            
-            # Группировка логирования
-            p = S / (S.sum() + 1e-9)
-            self.log_dict({
-                "debug_z_std": std_z.mean(),
-                "debug_z_norm": z.norm(dim=-1).mean(),
-                "debug_rank_me": torch.exp(-torch.sum(p * torch.log(p + 1e-9)))
-            }, prog_bar=True)
-
-            self.log_dict({
-                "debug_svd_max": S[0],
-                "debug_svd_2nd": S[1],
-                "debug_svd_3rd": S[2],
-                "debug_svd_min": S[-1],
-                "debug_cond_number": S[0] / (S[-1] + 1e-9)
-            }, prog_bar=False)
-            
-            return std_loss
+   
     
     def encode(self, x, edge_index, edge_attr):
         return self.model.encode(x, edge_index, edge_attr)
@@ -182,13 +152,7 @@ class JepaLight(L.LightningModule):
     def _apply_linear_weights(self, batch):
         """Linear transformation  (Min-Max нормализация)."""
         if batch.edge_attr is not None and batch.edge_attr.numel() > 0:
-            edge_batch = batch.batch[batch.edge_index[0]]
-            
-            min_vals = scatter(batch.edge_attr, edge_batch, dim=0, reduce='min')
-            max_vals = scatter(batch.edge_attr, edge_batch, dim=0, reduce='max')
-            
-            denom = (max_vals[edge_batch] - min_vals[edge_batch]).clamp_(min=1e-6)
-            batch.edge_attr = (batch.edge_attr - min_vals[edge_batch]) / denom
+            batch = linear_edge_weighting(batch)
             
         return batch
     
@@ -202,8 +166,6 @@ class JepaLight(L.LightningModule):
         loss = self.model(context_batch, target_batch)
         self.log(f"{step_name}_loss", loss, prog_bar=True)
         
-        if self.debug:
-            self._debug_log(batch)
             
         return loss
 
