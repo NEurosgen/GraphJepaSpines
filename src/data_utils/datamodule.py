@@ -1,15 +1,12 @@
-
+import logging
 
 import pytorch_lightning as pl
-from typing import Optional, Callable, Dict
+from typing import Optional, Callable
 
-from torch.utils.data import random_split, DataLoader
+from torch.utils.data import DataLoader
 from torch_geometric.data import Dataset
 import torch
-import random
-import os
 import re
-import pandas as pd
 from pathlib import Path
 
 
@@ -48,7 +45,7 @@ class GraphDataSet(Dataset):
             match = re.search(r'\d+', out.segment_id)
             if match:
                 out.segment_id = torch.tensor(int(match.group(0)), dtype=torch.long)
-        else:
+        elif not hasattr(out, 'segment_id'):
             try:
                 seg_id = int(re.findall(r'\d+', file_path.stem)[0])
                 out.segment_id = torch.tensor(seg_id, dtype=torch.long)
@@ -91,12 +88,10 @@ class GraphDataModule(pl.LightningDataModule):
         # с примененными статическими трансформациями. Когда DataLoader запустит num_workers, 
         # все воркеры получат доступ к уже заполненному кэшу в RAM.
         if self.dataset.save_cache:
-            import logging
             logging.info("Pre-loading dataset into RAM cache...")
             for i in range(len(self.dataset)):
                 _ = self.dataset[i]
-                
-        indices = torch.arange(len(self.dataset))
+
         generator = torch.Generator().manual_seed(self.seed)
         perm = torch.randperm(len(self.dataset), generator=generator)
         

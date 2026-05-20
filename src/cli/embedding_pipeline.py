@@ -31,9 +31,9 @@ class LinearClassifier(nn.Module):
 def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor , class_names = None):
     cls_cfg = cfg.classifier
     num_classes = cls_cfg.get("num_classes", 2)
-    n_splits    = cfg.get("n_splits", 5)
-    batch_size  = cfg.datamodule.batch_size
-    max_epochs  = cls_cfg.get("max_epochs", 500)
+    n_splits    = cls_cfg["n_splits"]
+    batch_size  = cls_cfg.batch_size
+    max_epochs  = cls_cfg["max_epochs"]
 
     skf  = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=cfg.seed)
     x_np = x_all.cpu().numpy()
@@ -307,7 +307,7 @@ class EmbeddingExtractor:
 
 def main():
 
-    encoder_folder = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_0/version_1"
+    encoder_folder = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/experiment/train_val/checkpoints/ep200"
     dataset_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_sph_minnie65_r=1.5"
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     encoder = load_encoder_from_folder(encoder_folder)

@@ -1,17 +1,15 @@
 # train_model.py
 import hydra
-
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 import pytorch_lightning as L
 import torch
 from hydra.utils import instantiate
 from ...data_utils.datamodule import GraphDataModule, GraphDataSet
 from ...data_utils.transforms import (
-    GenNormalize, 
+    GenNormalize,
     create_mask_collate_fn,
     MaskData,
-    preprocess_dataset
-    
+    preprocess_dataset,
 )
 from pathlib import Path
 from ...models.jepa import JepaLight
@@ -34,7 +32,7 @@ def get_datamodule(cfg):
 
     ds = GraphDataSet(
         path=output_path,
-        transform=None,  
+        transform=None,
         save_cache=cfg.dataset['save_cache']
     )
     datamodule = GraphDataModule(
@@ -48,20 +46,32 @@ def get_datamodule(cfg):
     return datamodule
 
 
-
-@hydra.main(version_base="1.3", config_path="../../../configs", config_name="config")
-def main(cfg: DictConfig):
+def run_training(cfg: DictConfig, checkpoint_dir: Path, name: str = None) -> None:
+    """Запускает одно полное обучение модели.
+    """
     L.seed_everything(cfg.seed, workers=True)
+
     model = instantiate(cfg.network, _recursive_=True)
     model_module = JepaLight(cfg=cfg, model=model, debug=False)
+
+    checkpoint_dir = Path(checkpoint_dir)
+
+    if name:
+        logger = L.loggers.TensorBoardLogger(save_dir=str(checkpoint_dir), name=name)
+        target_dir = Path(logger.log_dir)
+    else:
+        logger = L.loggers.TensorBoardLogger(save_dir=str(checkpoint_dir), name="", version="")
+        target_dir = checkpoint_dir
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+
     checkpoint_callback = L.callbacks.ModelCheckpoint(
+        dirpath=str(target_dir / "checkpoints"),
         monitor="val_loss",
         mode="min",
-        save_top_k=3,
+        save_top_k=1,
         filename="jepa-{epoch:02d}-{val_loss:.4f}"
     )
-
-    logger = L.loggers.TensorBoardLogger(save_dir=cfg.get("log_dir", "lightning_logs"), name="jepa")
 
     trainer = L.Trainer(
         **cfg.trainer,
@@ -69,9 +79,15 @@ def main(cfg: DictConfig):
         callbacks=[checkpoint_callback],
         deterministic=True
     )
-
+    
     datamodule = get_datamodule(cfg.datamodule)
     trainer.fit(model_module, datamodule=datamodule)
+
+
+@hydra.main(version_base="1.3", config_path="../../../configs", config_name="config")
+def main(cfg: DictConfig) -> None:
+    output_dir ="lightning_logs"
+    run_training(cfg=cfg, checkpoint_dir=output_dir, name = "main_train")
 
 
 if __name__ == "__main__":

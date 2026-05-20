@@ -1,5 +1,5 @@
 import torch.nn as nn
-from torch_geometric.nn import knn_graph, radius_graph
+from torch_geometric.nn import radius_graph
 from src.data_utils.structural_stats import ThesisMacroMetrics
 from pathlib import Path
 from tqdm import tqdm
@@ -7,11 +7,7 @@ from omegaconf import DictConfig
 from ..data_utils.stats import load_stats
 import torch
 from torch_geometric.data import Data
-from torch_geometric.utils import subgraph,to_scipy_sparse_matrix,to_scipy_sparse_matrix, get_laplacian
-import numpy as np
-import scipy.sparse as sp
-from torch_geometric.utils import degree
-from scipy.sparse.linalg import eigsh
+from torch_geometric.utils import subgraph
 
 def fast_normalization_by_features(data, eps=1e-6):
     """
@@ -29,7 +25,7 @@ def fast_normalization_by_features(data, eps=1e-6):
         if torch.any(col_mask):
             valid_data = col[col_mask]
             means[i] = valid_data.mean()
-            stds[i] = valid_data.std() 
+            stds[i] = valid_data.std() if valid_data.numel() > 1 else 1.0
         else:
             means[i] = 0.0
             stds[i] = 1.0

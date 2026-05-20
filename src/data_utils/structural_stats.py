@@ -37,21 +37,21 @@ class ThesisMacroMetrics(nn.Module):
                 subg = G.subgraph(c)
                 try:
                     intra_dists.append(nx.average_shortest_path_length(subg))
-                except:
+                except Exception:
                     pass
         avg_intra_dist = np.mean(intra_dists) if len(intra_dists) > 0 else 0.0
-        
+
         # 3. Modularity
         try:
             communities = nx.community.louvain_communities(G)
             modularity = nx.community.modularity(G, communities)
-        except:
+        except Exception:
             modularity = 0.0
-            
+
         # 4. Clustering Coefficient
         try:
             clustering_coeff = nx.average_clustering(G)
-        except:
+        except Exception:
             clustering_coeff = 0.0
 
         #5. Num nodes
@@ -63,7 +63,6 @@ class ThesisMacroMetrics(nn.Module):
             density = (2 * num_edges) / (num_nodes * (num_nodes - 1))
         else:
             density = 0.0
-        # После этго олжна быть нормаиация по типу BatchNorm либо доабвить глоб статистики в инициаоизацию класса а то как то странно получается
         metrics = [
             avg_subgraph_size ,
             avg_intra_dist,

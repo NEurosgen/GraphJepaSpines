@@ -84,9 +84,9 @@ def main(cfg: DictConfig):
     L.seed_everything(cfg.seed, workers=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    encoder_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/jepa_r_1.5_sh_0/version_1"
+    encoder_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/experiment/train_val/checkpoints/ep200"
     dataset_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_sph_minnie65_r=1.5"
-    n_splits     = cfg.get("n_splits", 5)
+    n_splits     = cfg.classifier.get("n_splits", 3)
 
     print("=" * 60)
     print(f" Cross-Validation Evaluation Pipeline")
