@@ -5,28 +5,20 @@ then train a classifier using Stratified K-Fold Cross Validation.
 
 import gc
 from pathlib import Path
-
+from src.data_utils.stats import compute_macro_stats
 import hydra
 import numpy as np
 import pytorch_lightning as L
 import torch
 from omegaconf import DictConfig
-from torch import nn
+from torch_geometric.nn import global_add_pool
 from src.cli.embedding_pipeline import EmbeddingExtractor, EmbeddingSet, train_cv
 from src.data_utils.datamodule import GraphDataSet
 from src.data_utils.transforms import GenNormalize
+from src.models.encoder import GraphLatent
 from src.models.loader_model import load_encoder_from_folder
 
 torch.set_float32_matmul_precision("high")
-
-class LinearClassifier(nn.Module):
-    def __init__(self, in_channels: int, num_classes: int):
-        super().__init__()
-        self.head = nn.Linear(in_channels, num_classes)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.head(x)
-
 
 
 def get_class_9009(file_path) -> torch.Tensor:
@@ -45,15 +37,22 @@ def extract_all_embeddings(cfg: DictConfig, device: torch.device):
 
     print(f"Loading encoder from: {cls_cfg.checkpoint_path}")
     encoder = load_encoder_from_folder(cls_cfg.checkpoint_path)
-    encoder.eval().requires_grad_(False).to(device)
+    
+
 
     transforms = []
     gen_normalize = GenNormalize(transforms=transforms, mask_transform=None)
 
     print(f"Loading dataset from: {cls_cfg.path}")
     ds = GraphDataSet(path=cls_cfg.path, get_class=get_class_9009, transform=gen_normalize)
-
-    extractor = EmbeddingExtractor(encoder=encoder, device=device)
+    macro_mean, macro_std = compute_macro_stats(ds)
+    encoder_graph = GraphLatent(
+        encoder=encoder,
+        macro_mean=macro_mean,
+        macro_std=macro_std,
+        pooling=global_add_pool,
+    ).to(device)
+    extractor = EmbeddingExtractor(encoder=encoder_graph, device=device)
     emb_set: EmbeddingSet = extractor.extract_from_graph_dataset(
         dataset=ds,
         batch_size=cls_cfg.get("batch_size", 128),
@@ -93,7 +92,8 @@ def main(cfg: DictConfig):
     print(f"Features: {x_all.shape}, Labels: {y_all.shape}")
 
     print(f"\n[2/2] Training & Evaluating with {n_splits}-Fold CV...")
-    fold_metrics = train_cv(cfg, x_all, y_all , class_names=["ab", "wt"])
+    save_path = cfg.classifier.get("save_classifier_path", None)
+    fold_metrics = train_cv(cfg, x_all, y_all, class_names=["ab", "wt"], save_path=save_path)
 
     if not fold_metrics:
         print("No metrics collected!")

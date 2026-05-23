@@ -119,18 +119,19 @@ class GraphPruning(torch.nn.Module):
     def forward(self, data):
         if self.r < 0.0:
             return data
-            
+
         new_edge_index = radius_graph(
-            data.pos, 
-            r=self.r, 
-            batch=data.batch, 
-            loop=False, 
+            data.pos,
+            r=self.r,
+            batch=data.batch,
+            loop=False,
             max_num_neighbors=data.num_nodes
         )
+        row, col = new_edge_index
+        dists = (data.pos[row] - data.pos[col]).norm(dim=-1, keepdim=True)
         data.edge_index = new_edge_index
-        if hasattr(data, 'edge_attr'):
-            data.edge_attr = None
-            
+        data.edge_attr = dists
+
         return data
 
 
@@ -326,7 +327,6 @@ def build_transforms(cfg, mean_x, std_x, mean_edge, std_edge):
         std_x = std_x[features]
     
     transforms.append(NormNoEps(mean=mean_x, std=std_x, eps=cfg.get('eps', 1e-6)))
-    transforms.append(EdgeNorm(mean=mean_edge, std=std_edge))
     transforms.append(LocalPos())
     radius_r = cfg['r']
     transforms.append(GraphPruning(r=radius_r))
@@ -371,7 +371,7 @@ def preprocess_dataset(cfg: DictConfig, input_path: Path, output_path: Path) -> 
 import hydra
 @hydra.main(version_base="1.3", config_path="../../configs", config_name="config")
 def main(cfg: DictConfig):
-    preprocess_dataset(cfg.datamodule,Path("datasets/dataset_sph_minnie65"),Path("datasets/dataset_sph_minnie65_r=3") )
+    preprocess_dataset(cfg.datamodule,Path("datasets/dataset_sph_minnie65"),Path("datasets/dataset_sph_minnie65_r=1.5") )
 
 if __name__ == "__main__":
     main()

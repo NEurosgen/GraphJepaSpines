@@ -9,7 +9,7 @@ from src.explainer.models import GraphExplainerWrapper
 import torch
 from src.data_utils.datamodule import GraphDataSet
 from src.explainer.visuals import DendriteVisualizer
-
+from src.cli.inference.d9009.evaluate_encoder_cv import get_class_9009
 
 def get_mesh_path(mesh_dataset_path, data_path):
     return os.path.join(mesh_dataset_path, data_path.split("/")[0], "output", data_path.split("/")[1][:-3], "surface_mesh.off")
@@ -19,10 +19,10 @@ def main(cfg: DictConfig):
     
    
 
-    env = setup_explainer_environment(cfg)
+    env = setup_explainer_environment(cfg , get_class = get_class_9009)
     ds = env["dataset"]
     encoder = env["encoder"]
-    classifier_module = env["classifier_module"]
+    classifier_module = env["classifier"]
     macro_mean = env["macro_mean"]
     macro_std = env["macro_std"]
     device = env["device"]
@@ -32,7 +32,7 @@ def main(cfg: DictConfig):
     data = ds[sample_idx].to(device)
     
     begin_pos  = GraphDataSet(
-        path=cfg.dataset.path_sph
+        path=cls_cfg.raw_path 
     )[sample_idx].to(device).pos
     print(begin_pos.shape)
     print(data.pos.shape)
@@ -49,9 +49,8 @@ def main(cfg: DictConfig):
 
     model_wrapper = GraphExplainerWrapper(
         jepa_model=encoder, 
-        classifier=classifier_module.classifier,
+        classifier=classifier_module,
         num_node_features=num_node_features,
-        sigma=cls_cfg["sigma"]
     ).to(device)
     
     explainer = Explainer(
@@ -73,7 +72,7 @@ def main(cfg: DictConfig):
     os.makedirs("explanations", exist_ok=True)
     
 
-    mesh_geometry_path = os.path.join(cfg.dataset.mesh_dataset_path, str(data.path).split("/")[0], "output", str(data.path).split("/")[1][:-3], "surface_mesh.off")
+    mesh_geometry_path = os.path.join(cls_cfg.mesh_dataset_path, str(data.path).split("/")[0], "output", str(data.path).split("/")[1][:-3], "surface_mesh.off")
     visualizer = DendriteVisualizer(
         mesh_path=mesh_geometry_path if os.path.exists(mesh_geometry_path) else None, 
         graph_data=data
