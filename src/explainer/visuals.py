@@ -53,9 +53,15 @@ class DendriteVisualizer:
                 node_importance = node_mask.mean(dim=1).cpu().numpy()
             else:
                 node_importance = node_mask.cpu().numpy()
-                
-            if node_importance.size > 0 and node_importance.max() > 0:
-                node_importance = node_importance / node_importance.max()
+
+            if node_importance.size > 0:
+                n_min, n_max = node_importance.min(), node_importance.max()
+                if n_max > n_min:
+                    node_importance = (node_importance - n_min) / (n_max - n_min)
+                elif n_max > 0:
+                    node_importance = node_importance / n_max
+                else:
+                    node_importance = np.zeros_like(node_importance)
                 
             marker_size = 4 + 10 * node_importance
             marker_color = node_importance
@@ -91,8 +97,14 @@ class DendriteVisualizer:
         
         if edge_mask is not None:
             edge_importance = edge_mask.cpu().numpy()
-            if edge_importance.size > 0 and edge_importance.max() > 0:
-                edge_importance = edge_importance / edge_importance.max()
+            if edge_importance.size > 0:
+                e_min, e_max = edge_importance.min(), edge_importance.max()
+                if e_max > e_min:
+                    edge_importance = (edge_importance - e_min) / (e_max - e_min)
+                elif e_max > 0:
+                    edge_importance = edge_importance / e_max
+                else:
+                    edge_importance = np.zeros_like(edge_importance)
         else:
             edge_importance = np.ones(edges.shape[1])
 
@@ -105,7 +117,7 @@ class DendriteVisualizer:
                 
             line_width = 1 + 5 * w if edge_mask is not None else 2
             alpha = max(0.2, w) if edge_mask is not None else 1.0
-            line_color = f'rgba(255, 0, 0, {alpha})' if edge_mask is not None else 'black'
+            line_color = f'rgba(0, 0, 255, {alpha})' if edge_mask is not None else 'black'
             
             edge_traces.append(go.Scatter3d(
                 x=[pos[src, 0], pos[dst, 0], None],
