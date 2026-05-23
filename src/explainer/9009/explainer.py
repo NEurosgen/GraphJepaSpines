@@ -6,7 +6,6 @@ from torch_geometric.explain import Explainer, GNNExplainer
 from src.data_utils.stats import extract_macro_features
 from src.explainer.utils import setup_explainer_environment
 from src.explainer.models import GraphExplainerWrapper
-import torch
 from src.data_utils.datamodule import GraphDataSet
 from src.explainer.visuals import DendriteVisualizer
 from src.cli.inference.d9009.evaluate_encoder_cv import get_class_9009
