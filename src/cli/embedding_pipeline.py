@@ -82,7 +82,7 @@ def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor , class_n
             ),
             callbacks=[checkpoint_cb],
             deterministic=True,
-            enable_progress_bar=False,
+            enable_progress_bar=True,
         )
 
         trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)

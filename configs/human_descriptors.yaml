@@ -1,0 +1,6 @@
+human_age:
+  path_sph: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_sph_humans_spine" # путь до датасет с графами с сферическими дескрипторами
+  prepare_dataset_sph: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_sph_humans_spine_prepare" # путь до обработанного дататесата дескрипторов с ребрами и энкодингами
+  stats_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_human_sph" # путь до статитстик для нормализации для классических дескрипторов
+  stats_sph_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_9009_sph/" # путь до статитстик для нормализации для сферических дескрипторов
+  #mesh_dataset_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/Archiv/9009/" # путь до датасета с мешами

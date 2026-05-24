@@ -74,6 +74,10 @@ class WeightedGINConv(MessagePassing):
             self.register_buffer('eps', torch.tensor([eps]))
 
     def forward(self, x, edge_index, edge_weight):
+        if edge_index is None or (hasattr(edge_index, 'numel') and edge_index.numel() == 0):
+            return self.nn((1 + self.eps) * x)
+        if edge_weight is None:
+            edge_weight = torch.ones(edge_index.size(1), device=x.device)
         out = self.propagate(edge_index, x=x, edge_weight=edge_weight)
         out = out + (1 + self.eps) * x
         return self.nn(out)
