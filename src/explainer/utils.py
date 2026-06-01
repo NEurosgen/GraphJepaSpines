@@ -7,7 +7,6 @@ from omegaconf import DictConfig
 
 from src.data_utils.datamodule import GraphDataSet
 from src.models.loader_model import load_encoder_from_folder
-from src.models.classificator import ClassifierLightModule
 from src.data_utils.transforms import GenNormalize , load_stats, build_transforms
 from src.data_utils.stats import compute_macro_stats
 

@@ -11,7 +11,7 @@ from torch_geometric.utils import subgraph
 
 def fast_normalization_by_features(data, eps=1e-6):
     """
-    Считает среднее и std для каждого из 21 признака, 
+    Считает среднее и std для каждого из n признака, 
     игнорируя значения |x| <= eps.
     """
     mask = data.abs() > eps
