@@ -22,8 +22,7 @@ network:
     dropout: 0.05
   lambd: 0.01
   num_slices: 32
-  ema: 0.996
-  
+
 
 # Training configuration
 training:

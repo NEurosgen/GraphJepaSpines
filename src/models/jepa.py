@@ -94,11 +94,11 @@ def sigreg(x: torch.Tensor ,num_slices: int = 256) -> torch.Tensor:
 
 
 class LeJEPA(nn.Module):
-    def __init__(self, encoder: nn.Module, 
-                 predictor: nn.Module, 
-                 lambd: float, 
+    def __init__(self, encoder: nn.Module,
+                 predictor: nn.Module,
+                 lambd: float,
                  num_slices: int = 256,
-                  **kwargs ): 
+                  **kwargs ):
 
         super().__init__()
         self.encoder = encoder
@@ -106,8 +106,6 @@ class LeJEPA(nn.Module):
         self.lambd = lambd
         self.num_slices = num_slices
         self.loss_fn = nn.MSELoss()
-    def _ema(self):
-        return
     def encode(self, x, edge_index, edge_attr):
         return self.encoder(x, edge_index, edge_attr)
     def forward(self, context, target):
@@ -174,11 +172,6 @@ class JepaLight(L.LightningModule):
     
     def validation_step(self, batch):
         return self._shared_step(batch, "val")
-    
-    def on_train_batch_end(self, outputs, batch, batch_idx):
-        self.model._ema()
-    
-   
 
     def configure_optimizers(self):
         opt_cfg = OmegaConf.to_container(self.optimizer_cfg, resolve=True)
