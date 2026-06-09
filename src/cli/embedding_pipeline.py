@@ -28,7 +28,13 @@ class LinearClassifier(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(x)
 
-def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor , class_names = None):
+def train_cv(
+    cfg: DictConfig,
+    x_all: torch.Tensor,
+    y_all: torch.Tensor,
+    class_names=None,
+    save_path: Optional[str] = None,
+):
     cls_cfg = cfg.classifier
     num_classes = cls_cfg.get("num_classes", 2)
     n_splits    = cls_cfg["n_splits"]
@@ -40,13 +46,16 @@ def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor , class_n
     y_np = y_all.cpu().numpy()
 
     fold_metrics = []
+    best_acc = -1.0
+    best_state: Optional[dict] = None
+
     print(f"\nStarting {n_splits}-Fold Cross Validation...")
 
     for fold, (train_val_idx, test_idx) in enumerate(skf.split(x_np, y_np)):
         print(f"\n{'='*40}\n Fold {fold + 1}/{n_splits}\n{'='*40}")
 
         train_idx, val_idx = train_test_split(
-            train_val_idx, test_size=0.1, random_state=cfg.seed, stratify=y_np[train_val_idx]
+            train_val_idx, test_size=0.2, random_state=cfg.seed, stratify=y_np[train_val_idx]
         )
 
         def make_loader(idx, shuffle):
@@ -80,9 +89,8 @@ def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor , class_n
                 name="cv_classifier",
                 version=f"fold_{fold}",
             ),
-            callbacks=[checkpoint_cb],
+            callbacks=[checkpoint_cb, L.callbacks.RichProgressBar()],
             deterministic=True,
-            enable_progress_bar=True,
         )
 
         trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
@@ -95,10 +103,25 @@ def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor , class_n
             fold_metrics.append((fold_acc, fold_f1))
             print(f"Fold {fold + 1} -> Accuracy: {fold_acc:.4f}, F1: {fold_f1:.4f}")
 
+            if save_path is not None and fold_acc > best_acc:
+                best_acc = fold_acc
+                best_state = {
+                    "in_channels": x_all.shape[1],
+                    "num_classes": num_classes,
+                    "state_dict": module.classifier.state_dict(),
+                }
+
         del module, trainer, checkpoint_cb
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    if save_path is not None and best_state is not None:
+        if os.path.isdir(save_path):
+            save_path = os.path.join(save_path, "best_classifier.pt")
+        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+        torch.save(best_state, save_path)
+        print(f"Best classifier (fold acc={best_acc:.4f}) saved to {save_path}")
 
     return fold_metrics
 

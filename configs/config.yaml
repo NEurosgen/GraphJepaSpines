@@ -59,7 +59,7 @@ datamodule:
   batch_size: 1024
   num_workers: 2
   r: 1.5
-  mask_ratio: 0.05
+  mask_ratio: 0.10
   seed: ${seed}
 
   ratio: [0.8,0.1, 0.1]
@@ -70,7 +70,8 @@ datamodule:
 classifier:
   noise_sigma: 0
   checkpoint_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/experiment/train_val/checkpoints/ep200"
-  classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/classifier/version_71'
+  classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/9009_classifier/best_classifier.pt'
+  raw_path: ${d9009.path_sph}
   path: ${d9009.prepare_dataset_sph}
   stats_path: ${d9009.stats_sph_path}
   num_classes: 2
@@ -78,17 +79,16 @@ classifier:
   folder_to_label:
     ab: 0
     wt: 1
-  learning_rate: 1e-2
+  learning_rate: 5e-3
   weight_decay: 1e-5
-  max_epochs: 500
-  n_splits : 1
- 
+  max_epochs: 10
+  n_splits : 3
+  save_classifier_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/9009_classifier'
 
   explain_sample_idx: 10
   extracted_embeddings_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/embeddings/minnie65_embeddings.pt"
   pooling_level: "neuron"  # 'graph' or 'neuron'
   pooling_type: "sum"     
-
-
+  mesh_dataset_path: ${d9009.mesh_dataset_path}
 
 #Создать совместимость с конфигами для датасетов
