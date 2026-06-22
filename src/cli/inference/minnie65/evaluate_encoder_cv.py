@@ -27,7 +27,7 @@ torch.set_float32_matmul_precision("high")
 
 def extract_all_embeddings(cfg: DictConfig, encoder_folder: str, dataset_path: str, device: torch.device):
     cls_cfg = cfg.classifier
-    dm_cfg = cfg.datamodule
+    dm_cfg = cfg.datamodule # Ошибка важная 
 
     print(f"Loading encoder from: {encoder_folder}")
     encoder = load_encoder_from_folder(encoder_folder)
@@ -66,8 +66,12 @@ def extract_all_embeddings(cfg: DictConfig, encoder_folder: str, dataset_path: s
         pooling_type = cls_cfg["pooling_type"]
         print(f"Pooling level: {pooling_level}, type: {pooling_type}")
         pooled_set = emb_set.pool_by_segment(pooling_type=pooling_type)
+        print(f"  Группировка по нейрону: {emb_set.embeddings.shape[0]} веток -> "
+              f"{pooled_set.embeddings.shape[0]} нейронов")
     else:
         pooled_set = emb_set
+        print(f"  Уровень '{pooling_level}': без пулинга по нейрону, "
+              f"{pooled_set.embeddings.shape[0]} объектов (сплит будет по веткам!)")
 
 
     x_pooled, y_pooled = pooled_set.embeddings, pooled_set.labels

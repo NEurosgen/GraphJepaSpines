@@ -102,7 +102,17 @@ def train_cv(
     best_state: Optional[dict] = None
 
     total = n_repeats * n_splits
+    # Диагностика сплита (на нейрон-уровне, если данные были запулены по нейронам)
+    n = len(x_np)
+    test_frac = 1.0 / n_splits
+    val_frac = (1.0 - test_frac) * 0.2
+    train_frac = (1.0 - test_frac) * 0.8
+    classes, counts = np.unique(y_np, return_counts=True)
     print(f"\nStarting {n_repeats}×{n_splits}-Fold Cross Validation ({total} runs)...")
+    print(f"  Объектов: {n} | классы (label:count): {dict(zip(classes.tolist(), counts.tolist()))}")
+    print(f"  Сплит на прогон: train≈{train_frac:.0%} ({int(round(n*train_frac))}), "
+          f"val≈{val_frac:.0%} ({int(round(n*val_frac))}), test≈{test_frac:.0%} ({int(round(n*test_frac))}) "
+          f"— непересекающиеся объекты, стратификация по классу")
 
     for repeat in range(n_repeats):
         seed = int(cfg.seed) + repeat
@@ -296,7 +306,15 @@ class EmbeddingSet:
         """
         if self.segment_ids is None:
             raise ValueError("segment_ids отсутствуют, пулинг невозможен.")
-            
+
+        # Защита от молчаливого схлопывания нейронов: id нейрона ~1e18, шаг float32
+        # в этом диапазоне ~7e10, поэтому float-тип слил бы РАЗНЫЕ нейроны в один сегмент.
+        if torch.is_floating_point(self.segment_ids):
+            raise TypeError(
+                f"segment_ids должен быть целочисленным (int64), получено {self.segment_ids.dtype}. "
+                "Float-тип схлопнет разные нейроны в один сегмент при группировке."
+            )
+
         if self.embeddings.numel() == 0:
             return EmbeddingSet(self.embeddings.clone(), self.labels.clone(), self.segment_ids.clone())
             

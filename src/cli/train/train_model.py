@@ -100,7 +100,7 @@ def run_training(cfg: DictConfig, checkpoint_dir: Path, name: str = None) -> Non
 @hydra.main(version_base="1.3", config_path="../../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
     output_dir ="lightning_logs"
-    run_training(cfg=cfg, checkpoint_dir=output_dir, name = "h01_train")
+    run_training(cfg=cfg, checkpoint_dir=output_dir, name = "minnie65_train")
 
 
 if __name__ == "__main__":
