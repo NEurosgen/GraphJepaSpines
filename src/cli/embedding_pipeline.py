@@ -62,7 +62,7 @@ def summarize_cv(fold_metrics, metric_names=("Accuracy", "F1")):
         print(f"  {name:>8}: {mean:.4f} ± {std:.4f}   95% CI [{lo:.4f}, {hi:.4f}]   (n={col.size})")
     print("=" * 60)
     return summary
-
+from sklearn.utils.class_weight import compute_class_weight
 
 def train_cv(
     cfg: DictConfig,
@@ -126,6 +126,17 @@ def train_cv(
                 train_val_idx, test_size=0.2, random_state=seed, stratify=y_np[train_val_idx]
             )
 
+            # Balancing loss for fold
+            train_labels = y_np[train_idx]
+            classes_present = np.unique(train_labels)
+            
+            weights = compute_class_weight(
+                class_weight='balanced',
+                classes=classes_present,
+                y=train_labels
+            )
+            class_weights_tensor = torch.tensor(weights, dtype=torch.float32)
+
             def make_loader(idx, shuffle):
                 ds = TensorDataset(x_all[idx], y_all[idx])
                 return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=2, persistent_workers=True)
@@ -141,6 +152,7 @@ def train_cv(
                 max_epochs=max_epochs,
                 num_classes=num_classes,
                 class_names=class_names,
+                class_weights=class_weights_tensor
             )
 
             checkpoint_cb = L.callbacks.ModelCheckpoint(
@@ -197,7 +209,7 @@ def train_cv(
 
 
 class EmbeddingsLightModule(L.LightningModule):
-    def __init__(self, classifier, lr, wd, max_epochs, num_classes, class_names=None):
+    def __init__(self, classifier, lr, wd, max_epochs, num_classes, class_names=None, class_weights = None):
         super().__init__()
         self.classifier = classifier
         self.lr = lr
@@ -205,7 +217,7 @@ class EmbeddingsLightModule(L.LightningModule):
         self.max_epochs = max_epochs
         self.num_classes = num_classes
         self.class_names = class_names
-        self.loss_fn = nn.CrossEntropyLoss()
+        self.loss_fn = nn.CrossEntropyLoss(weight=class_weights)
 
         metric_kwargs = dict(task="multiclass", num_classes=num_classes)
         self.train_acc = Accuracy(**metric_kwargs, average=None)
@@ -307,8 +319,6 @@ class EmbeddingSet:
         if self.segment_ids is None:
             raise ValueError("segment_ids отсутствуют, пулинг невозможен.")
 
-        # Защита от молчаливого схлопывания нейронов: id нейрона ~1e18, шаг float32
-        # в этом диапазоне ~7e10, поэтому float-тип слил бы РАЗНЫЕ нейроны в один сегмент.
         if torch.is_floating_point(self.segment_ids):
             raise TypeError(
                 f"segment_ids должен быть целочисленным (int64), получено {self.segment_ids.dtype}. "

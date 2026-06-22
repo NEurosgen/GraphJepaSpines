@@ -27,19 +27,19 @@ torch.set_float32_matmul_precision("high")
 
 def extract_all_embeddings(cfg: DictConfig, encoder_folder: str, dataset_path: str, device: torch.device):
     cls_cfg = cfg.classifier
-    dm_cfg = cfg.datamodule # Ошибка важная 
+    dm_cfg = cfg.datamodule # Ошибка важная
 
     print(f"Loading encoder from: {encoder_folder}")
     encoder = load_encoder_from_folder(encoder_folder)
     encoder.eval().requires_grad_(False).to(device)
 
-    mean_x, std_x = load_feature_stats(cls_cfg.stats_path)
+    mean_x, std_x = load_feature_stats(cfg.minnie65.stats_sph_path)
     gen_normalize = GenNormalize(
         build_canonical_transform(dm_cfg, mean_x, std_x),
         mask_transform=None,
     )
 
-    get_class_fn = make_minnie65_class_getter(dm_cfg.dataset.class_path)
+    get_class_fn = make_minnie65_class_getter(cfg.minnie65.class_path)
 
     print(f"Loading dataset from: {dataset_path}")
     ds = GraphDataSet(path=dataset_path, get_class=get_class_fn, transform=gen_normalize)
@@ -93,8 +93,8 @@ def main(cfg: DictConfig):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     encoder_path = cfg.classifier.checkpoint_path
-    dataset_path = cfg.classifier.raw_path
-    n_splits     = cfg.classifier.get("n_splits", 3)
+    dataset_path = cfg.minnie65.path_sph
+    n_splits     = cfg.classifier["n_splits"]
 
     print("=" * 60)
     print(f" Cross-Validation Evaluation Pipeline")
