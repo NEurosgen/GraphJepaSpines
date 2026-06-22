@@ -5,16 +5,15 @@ then train a classifier using Stratified K-Fold Cross Validation.
 
 import gc
 from pathlib import Path
-from src.data_utils.stats import compute_macro_stats
+from src.data_utils.stats import compute_macro_stats, load_feature_stats
 import hydra
-import numpy as np
 import pytorch_lightning as L
 import torch
 from omegaconf import DictConfig
 from torch_geometric.nn import global_add_pool
-from src.cli.embedding_pipeline import EmbeddingExtractor, EmbeddingSet, train_cv
+from src.cli.embedding_pipeline import EmbeddingExtractor, EmbeddingSet, train_cv, summarize_cv
 from src.data_utils.datamodule import GraphDataSet
-from src.data_utils.transforms import GenNormalize
+from src.data_utils.transforms import GenNormalize, build_canonical_transform
 from src.models.encoder import GraphLatent
 from src.models.loader_model import load_encoder_from_folder
 
@@ -40,11 +39,14 @@ def extract_all_embeddings(cfg: DictConfig, device: torch.device):
     
 
 
-    transforms = []
-    gen_normalize = GenNormalize(transforms=transforms, mask_transform=None)
+    mean_x, std_x = load_feature_stats(cls_cfg.stats_path)
+    gen_normalize = GenNormalize(
+        build_canonical_transform(dm_cfg, mean_x, std_x),
+        mask_transform=None,
+    )
 
-    print(f"Loading dataset from: {cls_cfg.path}")
-    ds = GraphDataSet(path=cls_cfg.path, get_class=get_class_9009, transform=gen_normalize)
+    print(f"Loading dataset from: {cls_cfg.raw_path}")
+    ds = GraphDataSet(path=cls_cfg.raw_path, get_class=get_class_9009, transform=gen_normalize)
     macro_mean, macro_std = compute_macro_stats(ds)
     encoder_graph = GraphLatent(
         encoder=encoder,
@@ -99,17 +101,7 @@ def main(cfg: DictConfig):
         print("No metrics collected!")
         return
 
-    acc_scores = [m[0] for m in fold_metrics]
-    f1_scores  = [m[1] for m in fold_metrics]
-
-    print("\n" + "=" * 60)
-    print("  CROSS-VALIDATION SUMMARY")
-    print("=" * 60)
-    for i, (acc, f1) in enumerate(fold_metrics):
-        print(f"  Fold {i+1:>2}:  Accuracy = {acc:.4f},  F1 = {f1:.4f}")
-    print("-" * 60)
-    print(f"  MEAN  :  Accuracy = {np.mean(acc_scores):.4f} ± {np.std(acc_scores):.4f},  F1 = {np.mean(f1_scores):.4f} ± {np.std(f1_scores):.4f}")
-    print("=" * 60)
+    summarize_cv(fold_metrics)
 
 
 if __name__ == "__main__":

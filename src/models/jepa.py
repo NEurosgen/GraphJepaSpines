@@ -9,17 +9,22 @@ class CrossAttentionPredictor(nn.Module):
     """
     Predictor that uses cross-attention to predict target node embeddings
     based on context node embeddings and positions.
-    
-    Query: target positions
-    Key/Value: context embeddings + positions
+
+    Query: target positions (mask_token + абсолютный pos_embed)
+    Key/Value: context embeddings + позиции
+
+    Примечание: позиции входят как АБСОЛЮТНЫЕ (линейный pos_embed), а внимание
+    считается по всему батчу (target аттендится ко всем context в батче).
+    Возможный относительный/внутриграфовый вариант предиктора описан в
+    docs/ARCHITECTURE.md (первые эксперименты улучшений не дали).
     """
     def __init__(self, hidden_dim: int, pos_dim: int = 3, num_heads: int = 4, dropout: float = 0.1):
         super().__init__()
         self.hidden_dim = hidden_dim
-        self.pos_embed = nn.Linear(pos_dim, hidden_dim) # Вроде норм
+        self.pos_embed = nn.Linear(pos_dim, hidden_dim)
         self.cross_attn = nn.MultiheadAttention(
-            embed_dim=hidden_dim, 
-            num_heads=num_heads, 
+            embed_dim=hidden_dim,
+            num_heads=num_heads,
             dropout=dropout,
             batch_first=True
         )
@@ -31,10 +36,10 @@ class CrossAttentionPredictor(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(hidden_dim * 2, hidden_dim)
         )
-        
+
         self.norm1 = nn.LayerNorm(hidden_dim)
         self.norm2 = nn.LayerNorm(hidden_dim)
-    
+
     def forward(self, context_emb: torch.Tensor, context_pos: torch.Tensor, target_pos: torch.Tensor) -> torch.Tensor:
         """
         Args:
@@ -44,32 +49,28 @@ class CrossAttentionPredictor(nn.Module):
         Returns:
             pred: [num_target, hidden_dim] - predicted embeddings for target nodes
         """
-
-    
-        
-
         context_key = context_emb + self.pos_embed(context_pos)
         context_val = context_emb
         # Query from target positions
         target_query_orig = self.mask_token + self.pos_embed(target_pos)
-        
+
         # Cross-attention (add batch dimension for nn.MultiheadAttention)
         target_query = target_query_orig.unsqueeze(0)
         context_key = context_key.unsqueeze(0)
         context_val = context_val.unsqueeze(0)
-        
+
         attn_out, _ = self.cross_attn(
             query=target_query,
             key=context_key,
             value=context_val
         )
         attn_out = attn_out.squeeze(0)
-        
+
         # Residual + LayerNorm + MLP
         x = target_query_orig + attn_out
         x = x + self.mlp(self.norm1(x))
         x = self.norm2(x)
-        
+
         return x
 
 

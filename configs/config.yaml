@@ -2,6 +2,7 @@ defaults:
   - "9009"
   - "minnie65"
   - "human_descriptors"
+  - "h01"
   - _self_
 
 seed: 51
@@ -26,9 +27,9 @@ network:
 
 # Training configuration
 training:
-  learning_rate: 1e-2
+  learning_rate: 5e-2
   weight_decay: 1e-5
-  max_epochs: 200
+  max_epochs: 800
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
@@ -49,39 +50,43 @@ datamodule:
   _target_: src.data_utils.datamodule.GraphDataModule
   dataset:
     _target_: src.data_utils.datamodule.GraphDataSet
-    path: ${minnie65.prepare_dataset_sph}
-    raw_path: ${minnie65.path_sph}
+    path: ${minnie65.path_sph}          # один исходный датасет; канонизация на лету, без prepare-шага
     stats_path: ${minnie65.stats_sph_path}
     class_path: ${minnie65.class_path}
     save_cache: true
   #features: [0,4,5,6,7,13,14,15,17,19,20]
-  batch_size: 1024
+  batch_size: 256
   num_workers: 2
   r: 1.5
+  use_macro: false       # макро-метрики топологии (networkx) за флагом; PE убраны
+  num_views: 4           # разные маски на один граф (разнообразие пар без позиционного шума)
+  rotation_angles: []    # повороты выключены (энкодер к ним инвариантен -> только мешали предиктору)
+  rotation_axis: z       # ось поворота (z = плоскость XY), используется если rotation_angles непустой
   mask_ratio: 0.10
   seed: ${seed}
 
-  ratio: [0.8,0.1, 0.1]
+  ratio: [0.8,0.2, 0.0]
 
 
 
 # Classifier training (linear probe on frozen JEPA encoder)
 classifier:
   noise_sigma: 0
-  checkpoint_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/experiment/train_val/checkpoints/ep200"
+  checkpoint_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/h01_train/version_2"
   classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/9009_classifier/best_classifier.pt'
-  raw_path: ${d9009.path_sph}
-  path: ${d9009.prepare_dataset_sph}
-  stats_path: ${d9009.stats_sph_path}
+  raw_path: ${minnie65.path_sph}
+  path: ${minnie65.prepare_dataset_sph}
+  stats_path: ${minnie65.stats_sph_path}
   num_classes: 2
-  batch_size: 2
+  batch_size: 1024
   folder_to_label:
     ab: 0
     wt: 1
-  learning_rate: 5e-3
-  weight_decay: 1e-5
-  max_epochs: 10
+  learning_rate: 1e-2
+  weight_decay: 1e-3      # усилена регуляризация линейного probe (борьба с переобучением)
+  max_epochs: 250
   n_splits : 3
+  n_repeats: 5          # repeated K-fold: всего n_repeats×n_splits прогонов для 95% CI
   save_classifier_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/9009_classifier'
 
   explain_sample_idx: 10
@@ -89,5 +94,14 @@ classifier:
   pooling_level: "neuron"  # 'graph' or 'neuron'
   pooling_type: "sum"     
   mesh_dataset_path: ${d9009.mesh_dataset_path}
+
+
+# Эксперимент переноса minnie65 -> h01 (src/experiment/transfer_h01/)
+transfer:
+  conditions: [transfer, random, raw]   # in_domain добавить, когда обучишь энкодер на h01
+  task: celltype                         # метка h01: celltype (бинарно exc/inh) | layer (7 классов -> classifier.num_classes=7)
+  minnie65_ckpt: ${classifier.checkpoint_path}   # энкодер, претренированный на minnie65
+  h01_ckpt: ""                                   # энкодер, обученный на h01 (для условия in_domain)
+
 
 #Создать совместимость с конфигами для датасетов

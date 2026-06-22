@@ -7,19 +7,17 @@ import gc
 from pathlib import Path
 
 import hydra
-import numpy as np
 import pytorch_lightning as L
 import torch
 from omegaconf import DictConfig
 from torch import nn
 from torch_geometric.nn import global_add_pool
-from src.cli.embedding_pipeline import EmbeddingExtractor, EmbeddingSet, EmbeddingsLightModule
+from src.cli.embedding_pipeline import EmbeddingExtractor, EmbeddingSet, train_cv, summarize_cv
 from src.data_utils.datamodule import GraphDataSet
-from src.data_utils.transforms import GenNormalize
+from src.data_utils.stats import compute_macro_stats, load_feature_stats
+from src.data_utils.transforms import GenNormalize, build_canonical_transform
 from src.models.encoder import GraphLatent
 from src.models.loader_model import load_encoder_from_folder
-from sklearn.model_selection import StratifiedKFold, train_test_split
-from torch.utils.data import DataLoader, TensorDataset
 torch.set_float32_matmul_precision("high")
 
 class LinearClassifier(nn.Module):
@@ -33,80 +31,6 @@ class LinearClassifier(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(x)
-
-def train_cv(cfg: DictConfig, x_all: torch.Tensor, y_all: torch.Tensor , class_names = None):
-    cls_cfg = cfg.classifier
-    num_classes = cls_cfg.get("num_classes", 2)
-    n_splits    = cls_cfg["n_splits"]
-    batch_size  = cls_cfg.batch_size
-    max_epochs  = cls_cfg["max_epochs"]
-
-    skf  = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=cfg.seed)
-    x_np = x_all.cpu().numpy()
-    y_np = y_all.cpu().numpy()
-
-    fold_metrics = []
-    print(f"\nStarting {n_splits}-Fold Cross Validation...")
-
-    for fold, (train_val_idx, test_idx) in enumerate(skf.split(x_np, y_np)):
-        print(f"\n{'='*40}\n Fold {fold + 1}/{n_splits}\n{'='*40}")
-
-        train_idx, val_idx = train_test_split(
-            train_val_idx, test_size=0.1, random_state=cfg.seed, stratify=y_np[train_val_idx]
-        )
-
-        def make_loader(idx, shuffle):
-            ds = TensorDataset(x_all[idx], y_all[idx])
-            return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=2, persistent_workers=True)
-
-        train_loader = make_loader(train_idx, shuffle=True)
-        val_loader   = make_loader(val_idx,   shuffle=False)
-        test_loader  = make_loader(test_idx,  shuffle=False)
-
-        module = EmbeddingsLightModule(
-            classifier=LinearClassifier(in_channels=x_all.shape[1], num_classes=num_classes),
-            lr=cls_cfg["learning_rate"],
-            wd=cls_cfg["weight_decay"],
-            max_epochs=max_epochs,
-            num_classes=num_classes,
-            class_names=class_names,
-        )
-
-        checkpoint_cb = L.callbacks.ModelCheckpoint(
-            monitor="val_acc", mode="max", save_top_k=1,
-            filename=f"cv_fold_{fold}-{{epoch:02d}}-{{val_acc:.4f}}",
-        )
-
-        trainer = L.Trainer(
-            max_epochs=max_epochs,
-            accelerator=cfg.trainer.get("accelerator", "gpu"),
-            devices=cfg.trainer.get("devices", 1),
-            logger=L.loggers.TensorBoardLogger(
-                save_dir=cfg["log_dir"],
-                name="cv_classifier",
-                version=f"fold_{fold}",
-            ),
-            callbacks=[checkpoint_cb],
-            deterministic=True,
-            enable_progress_bar=True,
-        )
-
-        trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
-
-        print(f"Testing Fold {fold + 1} best model...")
-        results = trainer.test(module, dataloaders=test_loader, verbose=False)
-        if results:
-            fold_acc = results[0].get("test_acc", 0.0)
-            fold_f1  = results[0].get("test_f1",  0.0)
-            fold_metrics.append((fold_acc, fold_f1))
-            print(f"Fold {fold + 1} -> Accuracy: {fold_acc:.4f}, F1: {fold_f1:.4f}")
-
-        del module, trainer, checkpoint_cb
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-    return fold_metrics
 
 def get_class_humans(file_path) -> torch.Tensor:
     mapping = {"Human_age40_apical_OFF": 0, "Human_age40_basal_OFF": 0, 
@@ -126,16 +50,20 @@ def extract_all_embeddings(cfg: DictConfig, device: torch.device):
     encoder = load_encoder_from_folder(cls_cfg.checkpoint_path)
     encoder.eval().requires_grad_(False).to(device)
 
-    transforms = []
-    gen_normalize = GenNormalize(transforms=transforms, mask_transform=None)
+    mean_x, std_x = load_feature_stats(cls_cfg.stats_path)
+    gen_normalize = GenNormalize(
+        build_canonical_transform(dm_cfg, mean_x, std_x),
+        mask_transform=None,
+    )
 
-    print(f"Loading dataset from: {cls_cfg.path}")
-    ds = GraphDataSet(path=cls_cfg.path, get_class=get_class_humans, transform=gen_normalize)
+    print(f"Loading dataset from: {cls_cfg.raw_path}")
+    ds = GraphDataSet(path=cls_cfg.raw_path, get_class=get_class_humans, transform=gen_normalize)
 
+    macro_mean, macro_std = compute_macro_stats(ds)
     encoder_graph = GraphLatent(
         encoder=encoder,
-        macro_mean=None,
-        macro_std=None,
+        macro_mean=macro_mean,
+        macro_std=macro_std,
         pooling=global_add_pool,
     ).to(device)
 
@@ -179,23 +107,17 @@ def main(cfg: DictConfig):
     print(f"Features: {x_all.shape}, Labels: {y_all.shape}")
 
     print(f"\n[2/2] Training & Evaluating with {n_splits}-Fold CV...")
-    fold_metrics = train_cv(cfg, x_all, y_all , class_names=["ab", "wt"])
+    fold_metrics = train_cv(
+        cfg, x_all, y_all,
+        class_names=["age40", "age85"],
+        classifier_factory=lambda in_ch, n_cls: LinearClassifier(in_ch, n_cls),
+    )
 
     if not fold_metrics:
         print("No metrics collected!")
         return
 
-    acc_scores = [m[0] for m in fold_metrics]
-    f1_scores  = [m[1] for m in fold_metrics]
-
-    print("\n" + "=" * 60)
-    print("  CROSS-VALIDATION SUMMARY")
-    print("=" * 60)
-    for i, (acc, f1) in enumerate(fold_metrics):
-        print(f"  Fold {i+1:>2}:  Accuracy = {acc:.4f},  F1 = {f1:.4f}")
-    print("-" * 60)
-    print(f"  MEAN  :  Accuracy = {np.mean(acc_scores):.4f} ± {np.std(acc_scores):.4f},  F1 = {np.mean(f1_scores):.4f} ± {np.std(f1_scores):.4f}")
-    print("=" * 60)
+    summarize_cv(fold_metrics)
 
 
 if __name__ == "__main__":

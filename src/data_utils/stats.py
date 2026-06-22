@@ -49,6 +49,21 @@ def extract_macro_features(data, macro_mean, macro_std):
     return macro_features
 
 
+def load_feature_stats(path):
+    """Грузит только статистики признаков узлов (mean/std).
+
+    Дистанции рёбер теперь считаются из pos и нормализуются per-graph в модели
+    (linear_edge_weighting), поэтому edge-статистики (mean_edge/std_edge) больше
+    не нужны для канонизации.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Stats dir not found: {path}")
+    mean_x = torch.load(path/"means.pt", map_location='cpu', weights_only=True)
+    std_x = torch.load(path/"stds.pt", map_location='cpu', weights_only=True)
+    return mean_x, std_x
+
+
 def load_stats(path):
     path = Path(path)
     if not path.exists():

@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Callable, Literal, Optional
 import pytorch_lightning as L
 import torch
 from torch import nn
@@ -16,6 +16,7 @@ from src.data_utils.datamodule import GraphDataSet
 from src.cli.inference.minnie65.minnie65_get_class import make_minnie65_class_getter
 from torchmetrics import Accuracy, F1Score
 import gc
+import numpy as np
 from sklearn.model_selection import StratifiedKFold, train_test_split
 from torch.utils.data import DataLoader, TensorDataset
 from omegaconf import DictConfig
@@ -28,20 +29,71 @@ class LinearClassifier(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(x)
 
+def _bootstrap_ci(values, confidence: float = 0.95, n_boot: int = 10000, seed: int = 0):
+    """95% доверительный интервал среднего через bootstrap по значениям прогонов."""
+    values = np.asarray(values, dtype=float)
+    if values.size == 0:
+        return float("nan"), float("nan")
+    if values.size == 1:
+        return float(values[0]), float(values[0])
+    rng = np.random.default_rng(seed)
+    boot_means = rng.choice(values, size=(n_boot, values.size), replace=True).mean(axis=1)
+    lo = float(np.quantile(boot_means, (1 - confidence) / 2))
+    hi = float(np.quantile(boot_means, 1 - (1 - confidence) / 2))
+    return lo, hi
+
+
+def summarize_cv(fold_metrics, metric_names=("Accuracy", "F1")):
+    """Печатает все прогоны + mean ± std + bootstrap 95% CI. Возвращает dict со сводкой."""
+    arr = np.asarray(fold_metrics, dtype=float)
+    print("\n" + "=" * 60)
+    print("  CROSS-VALIDATION SUMMARY")
+    print("=" * 60)
+    for i, row in enumerate(arr):
+        cells = ",  ".join(f"{name} = {val:.4f}" for name, val in zip(metric_names, row))
+        print(f"  Run {i + 1:>2}:  {cells}")
+    print("-" * 60)
+    summary = {}
+    for j, name in enumerate(metric_names):
+        col = arr[:, j]
+        mean, std = float(col.mean()), float(col.std())
+        lo, hi = _bootstrap_ci(col)
+        summary[name] = {"mean": mean, "std": std, "ci95_low": lo, "ci95_high": hi, "n": int(col.size)}
+        print(f"  {name:>8}: {mean:.4f} ± {std:.4f}   95% CI [{lo:.4f}, {hi:.4f}]   (n={col.size})")
+    print("=" * 60)
+    return summary
+
+
 def train_cv(
     cfg: DictConfig,
     x_all: torch.Tensor,
     y_all: torch.Tensor,
     class_names=None,
     save_path: Optional[str] = None,
+    classifier_factory: Optional[Callable[[int, int], nn.Module]] = None,
 ):
+    """Repeated Stratified K-Fold CV.
+
+    Возвращает список (acc, f1) по всем n_repeats × n_splits прогонам — для
+    оценки доверительного интервала (см. summarize_cv).
+
+    Сплиты фиксируются сидом cfg.seed (+ номер повтора), поэтому при равных
+    n_repeats/n_splits разные энкодеры/бейзлайны оцениваются на ОДНИХ И ТЕХ ЖЕ
+    разбиениях — это позволяет делать честное paired-сравнение.
+
+    classifier_factory(in_channels, num_classes) -> nn.Module позволяет задать
+    голову (по умолчанию линейный probe LinearClassifier).
+    """
     cls_cfg = cfg.classifier
     num_classes = cls_cfg.get("num_classes", 2)
     n_splits    = cls_cfg["n_splits"]
+    n_repeats   = cls_cfg.get("n_repeats", 1)
     batch_size  = cls_cfg.batch_size
     max_epochs  = cls_cfg["max_epochs"]
 
-    skf  = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=cfg.seed)
+    if classifier_factory is None:
+        classifier_factory = lambda in_channels, n_cls: LinearClassifier(in_channels, n_cls)
+
     x_np = x_all.cpu().numpy()
     y_np = y_all.cpu().numpy()
 
@@ -49,72 +101,79 @@ def train_cv(
     best_acc = -1.0
     best_state: Optional[dict] = None
 
-    print(f"\nStarting {n_splits}-Fold Cross Validation...")
+    total = n_repeats * n_splits
+    print(f"\nStarting {n_repeats}×{n_splits}-Fold Cross Validation ({total} runs)...")
 
-    for fold, (train_val_idx, test_idx) in enumerate(skf.split(x_np, y_np)):
-        print(f"\n{'='*40}\n Fold {fold + 1}/{n_splits}\n{'='*40}")
+    for repeat in range(n_repeats):
+        seed = int(cfg.seed) + repeat
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
-        train_idx, val_idx = train_test_split(
-            train_val_idx, test_size=0.2, random_state=cfg.seed, stratify=y_np[train_val_idx]
-        )
+        for fold, (train_val_idx, test_idx) in enumerate(skf.split(x_np, y_np)):
+            run = repeat * n_splits + fold + 1
+            print(f"\n{'='*40}\n Repeat {repeat+1}/{n_repeats}  Fold {fold+1}/{n_splits}  (run {run}/{total})\n{'='*40}")
 
-        def make_loader(idx, shuffle):
-            ds = TensorDataset(x_all[idx], y_all[idx])
-            return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=2, persistent_workers=True)
+            train_idx, val_idx = train_test_split(
+                train_val_idx, test_size=0.2, random_state=seed, stratify=y_np[train_val_idx]
+            )
 
-        train_loader = make_loader(train_idx, shuffle=True)
-        val_loader   = make_loader(val_idx,   shuffle=False)
-        test_loader  = make_loader(test_idx,  shuffle=False)
+            def make_loader(idx, shuffle):
+                ds = TensorDataset(x_all[idx], y_all[idx])
+                return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, num_workers=2, persistent_workers=True)
 
-        module = EmbeddingsLightModule(
-            classifier=LinearClassifier(in_channels=x_all.shape[1], num_classes=num_classes),
-            lr=cls_cfg["learning_rate"],
-            wd=cls_cfg["weight_decay"],
-            max_epochs=max_epochs,
-            num_classes=num_classes,
-            class_names=class_names,
-        )
+            train_loader = make_loader(train_idx, shuffle=True)
+            val_loader   = make_loader(val_idx,   shuffle=False)
+            test_loader  = make_loader(test_idx,  shuffle=False)
 
-        checkpoint_cb = L.callbacks.ModelCheckpoint(
-            monitor="val_acc", mode="max", save_top_k=1,
-            filename=f"cv_fold_{fold}-{{epoch:02d}}-{{val_acc:.4f}}",
-        )
+            module = EmbeddingsLightModule(
+                classifier=classifier_factory(x_all.shape[1], num_classes),
+                lr=cls_cfg["learning_rate"],
+                wd=cls_cfg["weight_decay"],
+                max_epochs=max_epochs,
+                num_classes=num_classes,
+                class_names=class_names,
+            )
 
-        trainer = L.Trainer(
-            max_epochs=max_epochs,
-            accelerator=cfg.trainer.get("accelerator", "gpu"),
-            devices=cfg.trainer.get("devices", 1),
-            logger=L.loggers.TensorBoardLogger(
-                save_dir=cfg["log_dir"],
-                name="cv_classifier",
-                version=f"fold_{fold}",
-            ),
-            callbacks=[checkpoint_cb, L.callbacks.RichProgressBar()],
-            deterministic=True,
-        )
+            checkpoint_cb = L.callbacks.ModelCheckpoint(
+                monitor="val_acc", mode="max", save_top_k=1,
+                filename=f"cv_r{repeat}_f{fold}-{{epoch:02d}}-{{val_acc:.4f}}",
+            )
 
-        trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
+            trainer = L.Trainer(
+                max_epochs=max_epochs,
+                accelerator=cfg.trainer.get("accelerator", "gpu"),
+                devices=cfg.trainer.get("devices", 1),
+                logger=L.loggers.TensorBoardLogger(
+                    save_dir=cfg["log_dir"],
+                    name="cv_classifier",
+                    version=f"r{repeat}_f{fold}",
+                ),
+                callbacks=[checkpoint_cb, L.callbacks.RichProgressBar()],
+                deterministic=True,
+            )
 
-        print(f"Testing Fold {fold + 1} best model...")
-        results = trainer.test(module, dataloaders=test_loader, verbose=False)
-        if results:
-            fold_acc = results[0].get("test_acc", 0.0)
-            fold_f1  = results[0].get("test_f1",  0.0)
-            fold_metrics.append((fold_acc, fold_f1))
-            print(f"Fold {fold + 1} -> Accuracy: {fold_acc:.4f}, F1: {fold_f1:.4f}")
+            trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
-            if save_path is not None and fold_acc > best_acc:
-                best_acc = fold_acc
-                best_state = {
-                    "in_channels": x_all.shape[1],
-                    "num_classes": num_classes,
-                    "state_dict": module.classifier.state_dict(),
-                }
+            # ckpt_path="best" -> тестируем лучшую по val_acc модель (а не последнюю
+            # эпоху), это фактический early stopping и снимает переобучение probe.
+            results = trainer.test(module, dataloaders=test_loader, ckpt_path="best", verbose=False)
+            if results:
+                fold_acc = results[0].get("test_acc", 0.0)
+                fold_f1  = results[0].get("test_f1",  0.0)
+                fold_metrics.append((fold_acc, fold_f1))
+                print(f"  run {run}/{total} -> Accuracy: {fold_acc:.4f}, F1: {fold_f1:.4f}")
 
-        del module, trainer, checkpoint_cb
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+                if save_path is not None and fold_acc > best_acc:
+                    best_acc = fold_acc
+                    best_state = {
+                        "in_channels": x_all.shape[1],
+                        "num_classes": num_classes,
+                        "state_dict": module.classifier.state_dict(),
+                    }
+
+            del module, trainer, checkpoint_cb
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     if save_path is not None and best_state is not None:
         if os.path.isdir(save_path):

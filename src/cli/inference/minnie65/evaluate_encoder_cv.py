@@ -6,15 +6,14 @@ then train a classifier using Stratified K-Fold Cross Validation.
 import gc
 import torch
 import hydra
-import numpy as np
 import pytorch_lightning as L
 from omegaconf import DictConfig
 
 from torch_geometric.nn import global_add_pool
-from src.cli.embedding_pipeline import EmbeddingExtractor, EmbeddingSet, train_cv
+from src.cli.embedding_pipeline import EmbeddingExtractor, EmbeddingSet, train_cv, summarize_cv
 from src.data_utils.datamodule import GraphDataSet
-from src.data_utils.stats import compute_macro_stats
-from src.data_utils.transforms import GenNormalize
+from src.data_utils.stats import compute_macro_stats, load_feature_stats
+from src.data_utils.transforms import GenNormalize, build_canonical_transform
 from src.models.encoder import GraphLatent
 from src.models.loader_model import load_encoder_from_folder
 from src.cli.inference.minnie65.minnie65_get_class import make_minnie65_class_getter
@@ -33,7 +32,12 @@ def extract_all_embeddings(cfg: DictConfig, encoder_folder: str, dataset_path: s
     print(f"Loading encoder from: {encoder_folder}")
     encoder = load_encoder_from_folder(encoder_folder)
     encoder.eval().requires_grad_(False).to(device)
-    gen_normalize = GenNormalize(transforms=[], mask_transform=None)
+
+    mean_x, std_x = load_feature_stats(cls_cfg.stats_path)
+    gen_normalize = GenNormalize(
+        build_canonical_transform(dm_cfg, mean_x, std_x),
+        mask_transform=None,
+    )
 
     get_class_fn = make_minnie65_class_getter(dm_cfg.dataset.class_path)
 
@@ -84,8 +88,8 @@ def main(cfg: DictConfig):
     L.seed_everything(cfg.seed, workers=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    encoder_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/src/experiment/train_val/checkpoints/ep200"
-    dataset_path = "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/dataset_sph_minnie65_r=1.5"
+    encoder_path = cfg.classifier.checkpoint_path
+    dataset_path = cfg.classifier.raw_path
     n_splits     = cfg.classifier.get("n_splits", 3)
 
     print("=" * 60)
@@ -106,17 +110,7 @@ def main(cfg: DictConfig):
         print("No metrics collected!")
         return
 
-    acc_scores = [m[0] for m in fold_metrics]
-    f1_scores  = [m[1] for m in fold_metrics]
-
-    print("\n" + "=" * 60)
-    print("  CROSS-VALIDATION SUMMARY")
-    print("=" * 60)
-    for i, (acc, f1) in enumerate(fold_metrics):
-        print(f"  Fold {i+1:>2}:  Accuracy = {acc:.4f},  F1 = {f1:.4f}")
-    print("-" * 60)
-    print(f"  MEAN  :  Accuracy = {np.mean(acc_scores):.4f} ± {np.std(acc_scores):.4f},  F1 = {np.mean(f1_scores):.4f} ± {np.std(f1_scores):.4f}")
-    print("=" * 60)
+    summarize_cv(fold_metrics)
 
 
 if __name__ == "__main__":

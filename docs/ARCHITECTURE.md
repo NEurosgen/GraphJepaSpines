@@ -32,7 +32,9 @@ uniformity и т.д.).
   для построения графа по радиусу.
 
 > ⚠️ Пайплайн «сырой меш → граф `.pt`» **в репозитории отсутствует**. Проект
-> работает с уже предобработанными `.pt`-файлами.
+> работает с уже построенными графами `.pt`; нормализация и построение рёбер
+> делаются внутри пайплайна на лету (см. §3). Билдер графов h01 —
+> `src/data_utils/build_h01_dendrite_graph.py`.
 
 ---
 
@@ -86,7 +88,7 @@ GIT_Graph_refactor/
 ├── tests/                    # интеграционные тесты пайплайна данных
 ├── checkpoints/              # обученные веса (.ckpt) — много версий
 ├── data/                     # статистики нормализации + извлечённые эмбеддинги
-├── datasets/                 # предобработанные графы .pt (не в git)
+├── datasets/                 # исходные графы .pt датасетов (не в git)
 └── docs/                     # этот документ + images
 ```
 
@@ -94,52 +96,67 @@ GIT_Graph_refactor/
 
 ## 3. Поток данных (data pipeline)
 
+> **Без отдельного шага записи на диск.** Раньше был `preprocess_dataset`,
+> материализовавший второй датасет на диск (оправдано дорогим `networkx` и
+> структурными PE). Сейчас сложные энкодинги убраны, канонизация дешёвая —
+> считается на лету в `GraphDataSet` и кэшируется в RAM (`save_cache`). Один
+> исходный датасет, без `prepare`-копии. См. §8.
+
+**Принцип единообразия:** датасеты неоднородны — h01 приходит без рёбер (только
+`x`, `pos`), minnie65 полносвязный, где-то есть предпосчитанные дистанции, где-то
+нет. Общий знаменатель — **`x` + `pos`**, поэтому структура графа **всегда
+строится из `pos`** (а `edge_attr` = дистанции из `pos`), любой исходный
+`edge_index`/`edge_attr` перетирается.
+
 ```
-сырые .pt графы
+один исходный датасет .pt графов
    │
-   ▼  preprocess_dataset()  (transforms.py)  — СТАТИЧЕСКИ, один раз, сохраняется на диск
-   │     ├─ FeatureChoice      (опц., выбор подмножества признаков)
-   │     ├─ NormNoEps          (z-нормализация x, игнор нулей)
-   │     ├─ EdgeNorm           (нормализация edge_attr)
-   │     ├─ LocalPos           (нормализация pos на граф)
-   │     ├─ GraphPruning(r)    (перестроение рёбер по радиусу r; r<0 = пропуск)
-   │     ├─ ThesisMacroMetrics (7 макро-метрик топологии графа → data.macro_metrics)
-   │     └─ ConcatStructuralPE (конкат Laplacian/Centrality/RandomWalk PE к x)
+   ▼  GraphDataSet.get(idx)  — КАНОНИЗАЦИЯ (детерминированная, кэш в RAM):
+   │     build_canonical_transform() (transforms.py)
+   │     ├─ FeatureChoice           (опц., выбор подмножества признаков)
+   │     ├─ NormNoEps               (z-нормализация x, игнор нулей)
+   │     ├─ LocalPos                (нормализация pos на граф)
+   │     ├─ BuildGeometricGraph(r)  (рёбра из pos по радиусу r + edge_attr = дистанции)
+   │     └─ ThesisMacroMetrics      (опц., по флагу cfg.use_macro)
    │
-   ▼  GraphDataSet (datamodule.py)  — загрузка .pt, опц. кэш в RAM, get_class
-   │
-   ▼  collate_fn (динамически на каждый батч):
-   │     └─ MaskData(mask_ratio) → (context_graph, target_graph)   [только для JEPA]
+   ▼  collate_fn (стохастически, на каждый батч, num_views раз на граф):
+   │     ├─ augment(view)           (хук под аугментации, напр. поворот; пока выключен)
+   │     └─ MaskData(mask_ratio) → (context_graph, target_graph)   независимо на каждый view
    │
    ▼  GraphDataModule  — train/val/test split по ratio, DataLoader'ы
 ```
 
 Ключевая идея разделения:
-- **Статические** трансформы (нормализация, PE, макро-метрики) считаются один раз
-  и кэшируются на диск через `preprocess_dataset`.
-- **Динамическое** маскирование (`MaskData`) применяется на каждом шаге в
-  `collate_fn` — каждый граф разбивается на **context** (видимая часть) и
-  **target** (замаскированные узлы) для JEPA-обучения.
+- **Канонизация** (нормализация + построение графа) детерминирована → считается
+  один раз и кэшируется в RAM (`save_cache=True`).
+- **Аугментация + маскирование** стохастические → на каждом шаге в `collate_fn`.
+  На каждый базовый граф генерируется `num_views` представлений, и для каждого
+  **независимо** считается своя маска → пара (context, target) для JEPA.
 
 ### Трансформы (`src/data_utils/transforms.py`)
 
 | Класс | Назначение |
 |---|---|
 | `NormNoEps` | z-нормализация признаков узлов, не трогает значения `|x|<eps` (нули-заглушки) |
-| `EdgeNorm` | нормализация атрибутов рёбер |
 | `LocalPos` | per-graph нормализация 3D-позиций |
-| `GraphPruning(r)` | строит граф `radius_graph` по радиусу `r`; `r<0` → пропуск; **обнуляет edge_attr** |
-| `ThesisMacroMetrics` | 7 макро-признаков графа (см. ниже) |
-| `ConcatStructuralPE` | конкат предрассчитанных PE к `x` |
+| `BuildGeometricGraph(r)` | **единообразное** построение графа из `pos`: рёбра `radius_graph(r)` + `edge_attr` = евклидовы дистанции `[E,1]`; перетирает любой исходный формат |
+| `ThesisMacroMetrics` | 7 макро-признаков графа (опц., за флагом `use_macro`; см. ниже) |
 | `MaskData(ratio)` | возвращает **два** графа: context и target (JEPA) |
 | `FeatureChoice` | выбор подмножества признаков по индексам |
 | `FeatureShuffling(ratio)` | абляция: перемешивание признаков (ломает связь со структурой) |
 | `GaussianNoiseAugmentation` / `GaussianPositionNoise` | абляции на устойчивость к шуму |
 
+Сборка: `build_canonical_transform(cfg, mean_x, std_x)` собирает детерминированную
+часть; `create_mask_collate_fn(transform, num_views, augment)` — стохастическую
+(маскирование + хук аугментаций). Нормализация рёбер (`EdgeNorm`) и структурные PE
+(`ConcatStructuralPE`, Laplacian/Centrality/RandomWalk) **удалены**: дистанции
+теперь нормализуются per-graph в модели (`linear_edge_weighting`), а от PE
+отказались.
+
 **Макро-метрики** (`ThesisMacroMetrics`, тензор `[1,7]`): средний размер
 компоненты связности, средняя внутрикластерная дистанция, modularity (Louvain),
 clustering coefficient, число узлов, число рёбер, плотность. Считаются через
-`networkx` — **дорого на CPU** (узкое место препроцессинга).
+`networkx` — **дорого на CPU**, поэтому по умолчанию выключены (`use_macro: false`).
 
 ---
 
@@ -176,7 +193,20 @@ Prevent Oversmoothing in GNNs», 2025):
 - **`CrossAttentionPredictor`** — предиктор: query = позиции target-узлов
   (`mask_token + pos_embed`), key/value = эмбеддинги+позиции context-узлов.
   Cross-attention → residual → MLP → LayerNorm. Предсказывает латенты target из
-  контекста.
+  контекста. Позиции **абсолютные** (линейный `pos_embed`), а внимание считается
+  по **всему батчу** (target формально аттендится ко всем context в батче, не
+  только своего графа).
+
+> ℹ️ **Возможная альтернатива предиктора (опробована, без улучшений).** Можно
+> сделать предиктор на **относительных** позициях (`target_pos − context_pos`
+> как аддитивный bias к вниманию) и ограничить внимание **внутри графа** (по
+> `batch`-векторам, реализация по парам через `scatter`/`softmax`, без плотной
+> `[Nt×Nc]` матрицы — масштабируется). Мотивация: инвариантность к системе
+> координат + устранение межграфового внимания. **Первые эксперименты на h01
+> улучшений не показали** (loss/downstream — на уровне или хуже абсолютной
+> версии), поэтому в коде оставлена абсолютная версия. Вариант стоит держать как
+> кандидата для будущих абляций (особенно вместе с устранением межграфового
+> внимания как отдельным фактором).
 
 - **`LeJEPA`** — основная модель (`config.yaml` → `network._target_`).
   Loss = `(1-λ)·MSE(pred, target_enc) + λ·SIGReg`, где **`sigreg`** —
@@ -211,8 +241,8 @@ Prevent Oversmoothing in GNNs», 2025):
 | `network` | `_target_` модели (LeJEPA), энкодер, предиктор, `lambd`, `num_slices` |
 | `training` | lr, weight_decay, max_epochs, optimizer, scheduler |
 | `trainer` | параметры Lightning `Trainer` (gpu, devices, ...) |
-| `datamodule` | пути датасета, `batch_size`, `num_workers`, `r`, `mask_ratio`, `ratio` (split) |
-| `classifier` | linear-probe: пути чекпоинтов, `num_classes`, CV (`n_splits`), pooling |
+| `datamodule` | путь датасета (`dataset.path`, один — без `prepare`), `stats_path`, `batch_size`, `num_workers`, `r` (радиус графа), `use_macro`, `num_views`, `mask_ratio`, `ratio` (split) |
+| `classifier` | linear-probe: пути чекпоинтов, `num_classes`, CV (`n_splits`, `n_repeats` → 95% CI), pooling |
 
 > ⚠️ Все пути в `*.yaml` — **абсолютные и захардкожены** под конкретную машину
 > (`/home/eugen/...`). Для переносимости их стоит вынести в переменные
@@ -220,8 +250,8 @@ Prevent Oversmoothing in GNNs», 2025):
 
 > ℹ️ `network.encoder.in_channels` зависит от используемого набора дескрипторов:
 > ~100 для сферических (spherical harmonics), ~31 для классических
-> морфологических — плюс структурные PE (Laplacian + Centrality + RW). Значение
-> нужно выставлять под конкретный предобработанный датасет.
+> морфологических. Значение нужно выставлять под конкретный датасет. (Структурные
+> PE убраны, так что в размерность они больше не входят.)
 
 ---
 
@@ -235,7 +265,7 @@ python -m src.cli.train.train_model
 (README указывает `src.cli.train_model` — **устаревший путь**, актуальный —
 `src.cli.train.train_model`.)
 
-Поток: `get_datamodule` → (при необходимости `preprocess_dataset`) →
+Поток: `get_datamodule` (канонизация на лету + RAM-кэш, без диск-шага) →
 инстанцирование `network` → `JepaLight` → `Trainer.fit`. Чекпоинты + TensorBoard
 логи в `lightning_logs/main_train/`. Выбор лучшего по `val_loss`.
 
@@ -260,18 +290,20 @@ python -m src.cli.embedding_pipeline
 ### 6.4 Оценка через linear probe (CV)
 
 ```bash
-python -m src.cli.inference.9009.evaluate_encoder_cv        # ab/wt мыши (2 класса)
+python -m src.cli.inference.d9009.evaluate_encoder_cv       # ab/wt мыши (2 класса)
 python -m src.cli.inference.minnie65.evaluate_encoder_cv    # типы клеток (exc/inh)
 python -m src.cli.inference.human_age.evaluate_encoder_cv   # человеческие шипики
 ```
-Извлекает эмбеддинги замороженным энкодером → `train_cv` (StratifiedKFold) →
-`EmbeddingsLightModule` (линейный/MLP-классификатор) → метрики Accuracy/F1
-(per-class + macro). Резюме по фолдам: mean ± std.
+Извлекает эмбеддинги замороженным энкодером → `train_cv` (**repeated** Stratified
+K-fold: `n_repeats × n_splits` прогонов, фиксированные сиды → возможно paired-
+сравнение) → `EmbeddingsLightModule` (голова через `classifier_factory`: линейная
+по умолчанию / MLP для human_age) → метрики Accuracy/F1 (per-class + macro).
+Сводка `summarize_cv`: mean ± std **+ bootstrap 95% CI**.
 
-> Замечание: классификаторы (`LinearClassifier`) **продублированы** в 3+ файлах
-> (`embedding_pipeline`, `loader_model`, оба `evaluate_encoder_cv`) с разными
-> «головами» (линейная vs MLP). `train_cv` тоже дублируется. Кандидат на
-> рефакторинг. См. §8.
+> Замечание: `train_cv`/`summarize_cv` теперь в одном месте
+> (`embedding_pipeline.py`), дубликат из human_age удалён. Остаётся дублирование
+> `LinearClassifier` в нескольких файлах с разными «головами» (линейная vs MLP) —
+> частично снято через `classifier_factory`. См. §8.
 
 ### 6.5 Объяснимость (`src/explainer/9009/`)
 
@@ -304,8 +336,12 @@ broadcast'нутыми глобальными фичами, применяет e
 | `RecallAtKEstimator` | Recall@K | да |
 | `CompositeEstimator` | объединяет несколько | — |
 
-Это ключевой инструмент для отслеживания **collapse** и качества SSL без
-разметки.
+Это **intrinsic-геометрия** латентного пространства без привязки к домену.
+Полезно как дешёвый детектор **collapse** в абляциях (упал RankMe/effective_dim =
+схлопывание), но **не** как «полезность латента» в смысле доменных знаний — для
+этого нужен анализ кластеров/направлений в терминах биологии (типы шипиков,
+патология). Модуль рассматривается к удалению, если роль детектора коллапса не
+нужна.
 
 ---
 
@@ -337,24 +373,33 @@ neuron-уровневого pooling.
    зависимостей (пункт 7) или сделать импорт опциональным, чтобы проект
    запускался у других без него.
 
+3. ✅ **Пайплайн данных упрощён** (эта сессия): убран диск-шаг `preprocess_dataset`
+   (канонизация на лету + RAM-кэш), удалены структурные PE (`ConcatStructuralPE`)
+   и `EdgeNorm`; добавлен `BuildGeometricGraph` (единообразие из `pos`); macro за
+   флагом `use_macro`; collate с `num_views` и хуком аугментаций. Data-pipeline
+   тесты приведены к новому API и сведены в одно дерево (`tests/`).
+
 ### Переносимость / гигиена
 5. **Захардкоженные абсолютные пути** во всех конфигах и в `main()` ряда
    скриптов (`embedding_pipeline.py`, `explainer.py`). Вынести в env / Hydra
    overrides / относительные пути.
-6. **Дублирование `LinearClassifier` и `train_cv`** в 3-4 местах. Свести к
-   одному источнику (например, `embedding_pipeline.py`) и переиспользовать.
+6. **Дублирование `LinearClassifier`** в нескольких файлах (линейная vs MLP
+   голова). `train_cv`/`summarize_cv` уже сведены в `embedding_pipeline.py`,
+   дубликат из human_age удалён; голова параметризуется `classifier_factory`.
+   Остаётся свести определения самого `LinearClassifier`.
 7. **Нет файла зависимостей** (`requirements.txt` / `environment.yml` /
    `pyproject.toml`). Окружение восстанавливается только из упоминания
    `conda activate torch_5060`. Стоит зафиксировать (torch, torch_geometric,
-   pytorch_lightning, hydra, omegaconf, networkx, sklearn, plotly, trimesh,
-   torchmetrics, pandas, scipy).
+   torch_cluster, pytorch_lightning, hydra, omegaconf, networkx, sklearn, plotly,
+   trimesh, torchmetrics, pandas, scipy).
 8. **`GraphLatent.forward`** содержит «висячую» строку `self.encoder` (без
    эффекта) внутри `torch.no_grad()` — артефакт, можно убрать.
 
 ### Производительность
-9. **`ThesisMacroMetrics` на networkx** — самое дорогое место препроцессинга
-   (Louvain, shortest paths). Кэшируется статически, но при новых датасетах
-   считается долго. Кандидат на векторизацию / параллелизм.
+9. **`ThesisMacroMetrics` на networkx** (Louvain, shortest paths) — дорого на CPU.
+   Теперь считается на лету (не на диск) и **по умолчанию выключено**
+   (`use_macro: false`); при включении на больших датасетах — кандидат на
+   векторизацию / параллелизм, особенно без RAM-кэша.
 
 ---
 
