@@ -27,9 +27,9 @@ network:
 
 # Training configuration
 training:
-  learning_rate: 5e-2
+  learning_rate: 2e-2
   weight_decay: 1e-5
-  max_epochs: 800
+  max_epochs: 500
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
@@ -50,8 +50,8 @@ datamodule:
   _target_: src.data_utils.datamodule.GraphDataModule
   dataset:
     _target_: src.data_utils.datamodule.GraphDataSet
-    path: ${minnie65.path_sph}          # один исходный датасет; канонизация на лету, без prepare-шага
-    stats_path: ${minnie65.stats_sph_path}
+    path: ${h01.path_sph}          # один исходный датасет; канонизация на лету, без prepare-шага
+    stats_path: ${h01.stats_sph_path}
     class_path: ${minnie65.class_path}
     save_cache: true
   #features: [0,4,5,6,7,13,14,15,17,19,20]
@@ -74,23 +74,24 @@ classifier:
   noise_sigma: 0
   checkpoint_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/h01_train/version_2"
   classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/9009_classifier/best_classifier.pt'
-  raw_path: ${minnie65.path_sph}
-  path: ${minnie65.prepare_dataset_sph}
-  stats_path: ${minnie65.stats_sph_path}
+  raw_path: ${h01.path_sph}
+  # path: ${minnie65.prepare_dataset_sph}
+  # stats_path: ${minnie65.stats_sph_path}
   num_classes: 2
-  batch_size: 1024
+  batch_size: 512
   folder_to_label:
     ab: 0
     wt: 1
-  learning_rate: 1e-2
-  weight_decay: 1e-3      # усилена регуляризация линейного probe (борьба с переобучением)
-  max_epochs: 250
-  n_splits : 3
-  n_repeats: 5          # repeated K-fold: всего n_repeats×n_splits прогонов для 95% CI
-  save_classifier_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/9009_classifier'
+  learning_rate: 5e-3
+  weight_decay: 1e-3   
+  max_epochs: 500
+  n_splits : 4
+  n_repeats: 4
+  probe: mlp            # нелинейный probe в evalaute_encoder_nonlin_cv: knn | mlp
+  knn_k: 5              # число соседей для probe=knn
+  #save_classifier_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/9009_classifier'
 
   explain_sample_idx: 10
-  extracted_embeddings_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/embeddings/minnie65_embeddings.pt"
   pooling_level: "neuron"  # 'graph' or 'neuron'
   pooling_type: "sum"     
   mesh_dataset_path: ${d9009.mesh_dataset_path}
