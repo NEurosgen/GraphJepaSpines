@@ -14,7 +14,7 @@ from src.data_utils.stats import compute_macro_stats
 from src.data_utils.transforms import GenNormalize
 from src.data_utils.datamodule import GraphDataSet
 from src.cli.inference.minnie65.minnie65_get_class import make_minnie65_class_getter
-from torchmetrics import Accuracy, F1Score
+from torchmetrics import Accuracy, F1Score, AUROC, AveragePrecision
 import gc
 import numpy as np
 from sklearn.model_selection import StratifiedKFold, train_test_split
@@ -43,9 +43,16 @@ def _bootstrap_ci(values, confidence: float = 0.95, n_boot: int = 10000, seed: i
     return lo, hi
 
 
-def summarize_cv(fold_metrics, metric_names=("Accuracy", "F1")):
-    """Печатает все прогоны + mean ± std + bootstrap 95% CI. Возвращает dict со сводкой."""
+def summarize_cv(fold_metrics, metric_names=("Accuracy", "F1", "ROC-AUC", "PR-AUC")):
+    """Печатает все прогоны + mean ± std + bootstrap 95% CI. Возвращает dict со сводкой.
+
+    metric_names обрезается до числа колонок в fold_metrics, поэтому функция
+    совместима и со старым форматом (acc, f1), и с новым (acc, f1, roc-auc, pr-auc).
+    """
     arr = np.asarray(fold_metrics, dtype=float)
+    if arr.ndim == 1:
+        arr = arr.reshape(-1, 1)
+    metric_names = tuple(metric_names)[: arr.shape[1]]
     print("\n" + "=" * 60)
     print("  CROSS-VALIDATION SUMMARY")
     print("=" * 60)
@@ -74,8 +81,9 @@ def train_cv(
 ):
     """Repeated Stratified K-Fold CV.
 
-    Возвращает список (acc, f1) по всем n_repeats × n_splits прогонам — для
-    оценки доверительного интервала (см. summarize_cv).
+    Возвращает список (acc, f1, roc_auc, pr_auc) по всем n_repeats × n_splits
+    прогонам — для оценки доверительного интервала (см. summarize_cv).
+    ROC-AUC и PR-AUC (AveragePrecision) считаются по вероятностям, macro по классам.
 
     Сплиты фиксируются сидом cfg.seed (+ номер повтора), поэтому при равных
     n_repeats/n_splits разные энкодеры/бейзлайны оцениваются на ОДНИХ И ТЕХ ЖЕ
@@ -155,10 +163,19 @@ def train_cv(
                 class_weights=class_weights_tensor
             )
 
+            # выбор лучшей модели и early stopping — оба по val_loss (гладкий сигнал,
+            # надёжнее val_acc на маленьком val)
             checkpoint_cb = L.callbacks.ModelCheckpoint(
-                monitor="val_acc", mode="max", save_top_k=1,
-                filename=f"cv_r{repeat}_f{fold}-{{epoch:02d}}-{{val_acc:.4f}}",
+                monitor="val_loss", mode="min", save_top_k=1,
+                filename=f"cv_r{repeat}_f{fold}-{{epoch:02d}}-{{val_loss:.4f}}",
             )
+
+            callbacks = [checkpoint_cb, L.callbacks.RichProgressBar()]
+            patience = cls_cfg.get("early_stop_patience", 0)
+            if patience and patience > 0:
+                callbacks.append(L.callbacks.EarlyStopping(
+                    monitor="val_loss", mode="min", patience=int(patience),
+                ))
 
             trainer = L.Trainer(
                 max_epochs=max_epochs,
@@ -169,20 +186,23 @@ def train_cv(
                     name="cv_classifier",
                     version=f"r{repeat}_f{fold}",
                 ),
-                callbacks=[checkpoint_cb, L.callbacks.RichProgressBar()],
+                callbacks=callbacks,
                 deterministic=True,
             )
 
             trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
-            # ckpt_path="best" -> тестируем лучшую по val_acc модель (а не последнюю
-            # эпоху), это фактический early stopping и снимает переобучение probe.
+            # ckpt_path="best" -> тестируем лучшую по val_loss модель (а не последнюю
+            # эпоху); вместе с EarlyStopping снимает переобучение probe.
             results = trainer.test(module, dataloaders=test_loader, ckpt_path="best", verbose=False)
             if results:
-                fold_acc = results[0].get("test_acc", 0.0)
-                fold_f1  = results[0].get("test_f1",  0.0)
-                fold_metrics.append((fold_acc, fold_f1))
-                print(f"  run {run}/{total} -> Accuracy: {fold_acc:.4f}, F1: {fold_f1:.4f}")
+                fold_acc   = results[0].get("test_acc",   0.0)
+                fold_f1    = results[0].get("test_f1",    0.0)
+                fold_auroc = results[0].get("test_auroc", float("nan"))
+                fold_ap    = results[0].get("test_ap",    float("nan"))
+                fold_metrics.append((fold_acc, fold_f1, fold_auroc, fold_ap))
+                print(f"  run {run}/{total} -> Accuracy: {fold_acc:.4f}, F1: {fold_f1:.4f}, "
+                      f"ROC-AUC: {fold_auroc:.4f}, PR-AUC: {fold_ap:.4f}")
 
                 if save_path is not None and fold_acc > best_acc:
                     best_acc = fold_acc
@@ -226,6 +246,12 @@ class EmbeddingsLightModule(L.LightningModule):
         self.train_f1  = F1Score(**metric_kwargs, average="macro")
         self.val_f1    = F1Score(**metric_kwargs, average="macro")
         self.test_f1   = F1Score(**metric_kwargs, average="macro")
+        # AUROC/PR-AUC требуют вероятностей (не argmax); macro по классам.
+        # AveragePrecision == площадь под precision-recall (PR-AUC).
+        self.val_auroc  = AUROC(**metric_kwargs, average="macro")
+        self.test_auroc = AUROC(**metric_kwargs, average="macro")
+        self.val_ap     = AveragePrecision(**metric_kwargs, average="macro")
+        self.test_ap    = AveragePrecision(**metric_kwargs, average="macro")
 
     def forward(self, x):
         return self.classifier(x)
@@ -255,11 +281,16 @@ class EmbeddingsLightModule(L.LightningModule):
     def validation_step(self, batch, _):
         x, y = batch
         logits = self(x)
+        probs = torch.softmax(logits, dim=1)
         preds = logits.argmax(dim=1)
         self.val_acc(preds, y)
         self.val_f1(preds, y)
+        self.val_auroc(probs, y)
+        self.val_ap(probs, y)
         self.log("val_loss", self.loss_fn(logits, y), prog_bar=True)
         self.log("val_f1", self.val_f1, prog_bar=True)
+        self.log("val_auroc", self.val_auroc, prog_bar=True)
+        self.log("val_ap", self.val_ap, prog_bar=True)
 
     def on_validation_epoch_end(self):
         acc = self.val_acc.compute()
@@ -269,10 +300,16 @@ class EmbeddingsLightModule(L.LightningModule):
 
     def test_step(self, batch, _):
         x, y = batch
-        preds = self(x).argmax(dim=1)
+        logits = self(x)
+        probs = torch.softmax(logits, dim=1)
+        preds = logits.argmax(dim=1)
         self.test_acc(preds, y)
         self.test_f1(preds, y)
+        self.test_auroc(probs, y)
+        self.test_ap(probs, y)
         self.log("test_f1", self.test_f1)
+        self.log("test_auroc", self.test_auroc)
+        self.log("test_ap", self.test_ap)
 
     def on_test_epoch_end(self):
         acc = self.test_acc.compute()

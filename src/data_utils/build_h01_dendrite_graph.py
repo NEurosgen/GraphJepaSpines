@@ -76,8 +76,8 @@ def build_graph(spines: dict):
 
 
 def main():
-    src_dir = Path(__file__).resolve().parents[2] / "datasets" / "h01_output_descriptors"
-    dst_dir = Path(__file__).resolve().parents[2] / "datasets" / "h01_dendrite_graph"
+    src_dir = Path(__file__).resolve().parents[2] / "datasets" / "minnie65_output_oriented_descriptors_subset"
+    dst_dir = Path(__file__).resolve().parents[2] / "datasets" / "minnie65_oriented_dendrite_graph"
     dst_dir.mkdir(parents=True, exist_ok=True)
 
     groups = group_spine_files(src_dir)

@@ -1,5 +1,6 @@
 # train_model.py
 import hydra
+import subprocess
 from omegaconf import DictConfig, OmegaConf
 import pytorch_lightning as L
 import torch
@@ -59,6 +60,37 @@ def get_datamodule(cfg):
     return datamodule
 
 
+def save_git_info(target_dir: Path) -> None:
+    """Сохраняет git-состояние рядом с чекпоинтом: коммит/ветка/dirty в git_info.txt,
+    и (если есть незакоммиченные правки) их дифф в git_uncommitted.diff — чтобы
+    точное состояние кода прогона было воспроизводимо."""
+    repo_root = Path(__file__).resolve().parents[3]
+
+    def _git(*args: str) -> str:
+        try:
+            r = subprocess.run(["git", *args], cwd=repo_root,
+                               capture_output=True, text=True, timeout=15)
+            return r.stdout.strip()
+        except Exception:
+            return ""
+
+    commit = _git("rev-parse", "HEAD")
+    if not commit:
+        return  # не git-репозиторий / git недоступен
+
+    dirty = bool(_git("status", "--porcelain"))
+    info = (
+        f"commit: {commit}\n"
+        f"branch: {_git('rev-parse', '--abbrev-ref', 'HEAD')}\n"
+        f"dirty:  {dirty}\n"
+    )
+    (Path(target_dir) / "git_info.txt").write_text(info)
+    if dirty:
+        diff = _git("diff", "HEAD")
+        if diff:
+            (Path(target_dir) / "git_uncommitted.diff").write_text(diff + "\n")
+
+
 def run_training(cfg: DictConfig, checkpoint_dir: Path, name: str = None) -> None:
     """Запускает одно полное обучение модели.
     """
@@ -77,6 +109,7 @@ def run_training(cfg: DictConfig, checkpoint_dir: Path, name: str = None) -> Non
         target_dir = checkpoint_dir
 
     target_dir.mkdir(parents=True, exist_ok=True)
+    save_git_info(target_dir)
 
     checkpoint_callback = L.callbacks.ModelCheckpoint(
         dirpath=str(target_dir / "checkpoints"),
@@ -100,7 +133,7 @@ def run_training(cfg: DictConfig, checkpoint_dir: Path, name: str = None) -> Non
 @hydra.main(version_base="1.3", config_path="../../../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
     output_dir ="lightning_logs"
-    run_training(cfg=cfg, checkpoint_dir=output_dir, name = "h01_train")
+    run_training(cfg=cfg, checkpoint_dir=output_dir, name = "pretrain_minnie65_train_oriented_subset")
 
 
 if __name__ == "__main__":

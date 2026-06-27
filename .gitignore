@@ -1,7 +1,7 @@
 .vscode/
 __pycache__/
 
-
+build_h01_dendrite_graph.py
 outputs/
 lightning_logs/
 explanations/

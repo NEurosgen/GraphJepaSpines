@@ -3,7 +3,7 @@
 # архитектурно энкодер совместим. Нормализуется h01 СВОИМИ статистиками (каждый
 # домен -> свой N(0,1)), что выравнивает распределения признаков для переноса.
 h01:
-  path_sph: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/h01_dendrite_graph"
+  path_sph: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/datasets/h01_oriented_dendrite_graph"
   stats_sph_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/stats_h01_sph/"
   # метки из somas.csv (proofread_104_rep -> celltype/layer), см. src/cli/inference/h01/h01_get_class.py
   celltype_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/data/h01_celltype.csv"  # neuron_id -> cell_type (exc/inh)
