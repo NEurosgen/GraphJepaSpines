@@ -1,7 +1,7 @@
 defaults:
-  - "9009"
+  - "d9009"
   - "minnie65"
-  - "human_descriptors"
+  - "human_age"
   - "h01"
   - _self_
 
@@ -12,7 +12,7 @@ network:
   _target_: src.models.jepa.LeJEPA
   encoder:
     _target_: src.models.encoder.GraphGinEncoder
-    in_channels: 100  # Base 21 + Laplacian 4 + Centrality 1 + RW 5 = 31
+    in_channels: 100  # размерность сферических дескрипторов (PE убраны)
     out_channels: 32
     num_layers: 3
   predictor:
@@ -33,7 +33,7 @@ training:
   optimizer:
     _target_: torch.optim.AdamW
     weight_decay: ${training.weight_decay}
-  scheduler:    # Для соотвествия с экспериментом
+  scheduler:    # для соответствия с экспериментом
     _target_: torch.optim.lr_scheduler.CosineAnnealingLR
     T_max: ${training.max_epochs}
 
@@ -54,11 +54,10 @@ datamodule:
     stats_path: ${minnie65.stats_sph_path}
     class_path: ${minnie65.class_path}
     save_cache: true
-  #features: [0,4,5,6,7,13,14,15,17,19,20]
   batch_size: 512
   num_workers: 2
   r: 1.5
-  use_macro: true       # макро-метрики топологии (networkx) за флагом; PE убраны
+  use_macro: false      # макро-метрики топологии (networkx) за флагом; PE убраны
   num_views: 1           # разные маски на один граф (разнообразие пар без позиционного шума)
   rotation_angles: []    # повороты выключены (энкодер к ним инвариантен -> только мешали предиктору)
   rotation_axis: z       # ось поворота (z = плоскость XY), используется если rotation_angles непустой
@@ -75,22 +74,19 @@ classifier:
   checkpoint_path: "/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/pretrain_minnie65_train_oriented_subset/version_0"
   classifier_checkpoint_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/9009_classifier/best_classifier.pt'
   raw_path: ${minnie65.path_sph}
-  # path: ${minnie65.prepare_dataset_sph}
-  # stats_path: ${minnie65.stats_sph_path}
   num_classes: 2
-  batch_size: 512
+  batch_size: 128
   folder_to_label:
     ab: 0
     wt: 1
   learning_rate: 3e-3
-  weight_decay: 1e-3   
-  max_epochs: 500
+  weight_decay: 2.6e-6  
+  max_epochs: 200
   n_splits : 4
-  n_repeats: 4
+  n_repeats: 2
   early_stop_patience: 70   # EarlyStopping по val_loss (0 = выкл)
   probe: mlp            # нелинейный probe в evalaute_encoder_nonlin_cv: knn | mlp
   knn_k: 5              # число соседей для probe=knn
-  #save_classifier_path: '/home/eugen/Desktop/CodeWork/Projects/Diplom/notebooks/GIT_Graph_refactor/lightning_logs/9009_classifier'
 
   explain_sample_idx: 10
   pooling_level: "neuron"  # 'graph' or 'neuron'
@@ -106,4 +102,7 @@ transfer:
   h01_ckpt: ""                                   # энкодер, обученный на h01 (для условия in_domain)
 
 
-#Создать совместимость с конфигами для датасетов
+# Optuna-поиск гиперпараметров probe (src/experiment/hparam_search/run_optuna_search_minnie65.py)
+optuna:
+  n_trials: 30                # число триалов TPE
+  objective_metric: ROC-AUC   # что максимизируем: Accuracy | F1 | ROC-AUC | PR-AUC
